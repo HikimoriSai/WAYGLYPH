@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Wayglyph — Cipher Pathfinder</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/animejs/dist/bundles/anime.umd.min.js"></script>
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "on-secondary": "#4b007d", "outline-variant": "#3d484d",
+          "success-mint": "#4cc9f0", "accent-coral": "#f72585",
+          "on-background": "#e5e2e1", "on-surface-variant": "#bcc8ce",
+          "primary-fixed-dim": "#5bd5fc", "secondary-container": "#6f00b4",
+          "surface-container-lowest": "#0e0e0e", "surface-container": "#201f1f",
+          "background": "#131313", "secondary": "#e0b6ff", "primary": "#93e2ff",
+          "error": "#ffb4ab", "outline": "#879398", "on-surface": "#e5e2e1",
+          "surface-container-high": "#2a2a2a", "surface": "#131313",
+          "on-primary": "#003543", "surface-container-highest": "#353534",
+          "on-secondary-container": "#d7a4ff", "surface-variant": "#353534",
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body{margin:0;background:#131313;font-family:"Quicksand",sans-serif;}
+  ::-webkit-scrollbar{display:none;}
+  .node-circle{cursor:pointer;transition:all .3s ease;will-change:transform;transform-box:fill-box;transform-origin:center;}
+  #graphSvg{cursor:crosshair;}
+  #graphSvg.mode-connect{cursor:pointer;}
+  .pill-btn{transition:all .3s ease;will-change:transform;}
+  .pill-btn.active{background:#93e2ff;color:#003543;border-color:#93e2ff;}
+
+  /* --- Left build rail --- */
+  .rail-btn{display:flex;align-items:center;gap:.5rem;white-space:nowrap;flex-shrink:0;}
+  .rail-label{font-size:9.5px;letter-spacing:.14em;font-weight:700;text-transform:uppercase;color:#879398;}
+
+  /* --- Build menu drawer --- */
+  /* --- Build menu: inline push panel beside the map, not an overlay --- */
+  #buildRail{
+    overflow:hidden;
+    opacity:0;
+    max-height:0;
+    border:1px solid transparent;
+    transition:max-height .32s cubic-bezier(.32,.72,0,1), opacity .25s ease, border-color .3s ease;
+  }
+  #buildRail.open{
+    opacity:1;
+    max-height:640px;
+    border-color:#3d484d;
+  }
+  @media (min-width:1024px){
+    #buildRail{
+      max-height:none;
+      max-width:0;
+      transition:max-width .32s cubic-bezier(.32,.72,0,1), opacity .25s ease, border-color .3s ease;
+    }
+    #buildRail.open{
+      max-width:280px;
+    }
+  }
+
+  /* --- Signature logo mark --- */
+  .glyph-mark{filter:drop-shadow(0 0 5px rgba(147,226,255,.35));}
+
+  /* --- Computation log --- */
+  #logPanel{scroll-behavior:smooth;}
+  .log-row{border-left:2px solid transparent;transition:background .2s ease;}
+
+  /* --- Encrypted export card --- */
+  .cipher-frame{position:relative;overflow:hidden;}
+  .cipher-frame::after{
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.05;
+    background:repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 3px);
+  }
+  .chip{display:inline-flex;align-items:center;gap:.35rem;font-size:11px;font-weight:700;
+    padding:.3rem .65rem;border-radius:999px;background:#2a2a2a;border:1px solid #3d484d;color:#bcc8ce;}
+  @keyframes lockPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.55;transform:scale(1.12);}}
+  .lock-pulse{animation:lockPulse 2.2s ease-in-out infinite;}
+
+  /* --- Hover ergonomics: smooth on desktop, never "stuck" on touch --- */
+  .hover-lift{transition:all .3s ease;will-change:transform;}
+  @media (hover: hover){
+    .hover-lift:hover{transform:translateY(-4px) scale(1.02);box-shadow:0 10px 24px -12px rgba(0,0,0,.5);}
+    .node-circle:hover{filter:drop-shadow(0 0 6px #93e2ff);}
+    .log-row:hover{background:rgba(255,255,255,.03);}
+  }
+
+  /* --- In-app confirm modal (replaces the native browser confirm()) --- */
+  #modalBackdrop{transition:opacity .25s ease;}
+  #modalBackdrop.hidden-modal{opacity:0;pointer-events:none;}
+  #modalCard{transition:transform .25s cubic-bezier(.32,.72,0,1),opacity .25s ease;}
+  #modalBackdrop.hidden-modal #modalCard{transform:scale(.94) translateY(6px);opacity:0;}
+
+  /* --- Toasts (replaces the native browser alert()) --- */
+  .toast{transition:opacity .3s ease,transform .3s ease;}
+</style>
+</head>
+<body class="bg-background text-on-background">
+
+<header class="min-h-16 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 flex flex-wrap items-center gap-3 px-3 sm:px-6 py-2.5">
+  <svg class="glyph-mark shrink-0" width="38" height="38" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#93e2ff"/>
+        <stop offset="1" stop-color="#e0b6ff"/>
+      </linearGradient>
+    </defs>
+    <polygon points="20,3 34,11.5 34,28.5 20,37 6,28.5 6,11.5" fill="none" stroke="url(#logoGrad)" stroke-width="2.2"/>
+    <g stroke="url(#logoGrad)" stroke-width="1.4" opacity="0.55">
+      <line x1="20" y1="3" x2="20" y2="7"/>
+      <line x1="34" y1="11.5" x2="30.5" y2="13.5"/>
+      <line x1="34" y1="28.5" x2="30.5" y2="26.5"/>
+      <line x1="20" y1="37" x2="20" y2="33"/>
+      <line x1="6" y1="28.5" x2="9.5" y2="26.5"/>
+      <line x1="6" y1="11.5" x2="9.5" y2="13.5"/>
+    </g>
+    <path d="M13 24 L20 15 L27 22" fill="none" stroke="#f72585" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="13" cy="24" r="2.6" fill="#4cc9f0"/>
+    <circle cx="20" cy="15" r="2.6" fill="#e5e2e1"/>
+    <circle cx="27" cy="22" r="2.6" fill="#f72585"/>
+  </svg>
+  <div class="flex flex-col leading-tight">
+    <span class="font-bold text-lg sm:text-2xl tracking-tighter uppercase">Wayglyph</span>
+    <span class="hidden sm:block text-[10px] tracking-widest uppercase text-on-surface-variant font-semibold">A* Pathfinding, Caesar-Sealed</span>
+  </div>
+</header>
+
+<!-- Toast stack: replaces native alert() -->
+<div id="toastStack" class="fixed top-4 left-1/2 -translate-x-1/2 z-[70] flex flex-col gap-2 items-center px-3 w-full max-w-sm pointer-events-none"></div>
+
+<!-- In-app confirm modal: replaces native confirm() -->
+<div id="modalBackdrop" class="hidden-modal fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+  <div id="modalCard" class="bg-surface-container border border-outline-variant rounded-2xl shadow-2xl w-full max-w-sm p-5">
+    <div class="flex items-center gap-3 mb-2">
+      <span id="modalIcon" class="material-symbols-outlined text-error bg-error/15 p-1.5 rounded-lg text-[20px]">warning</span>
+      <h3 id="modalTitle" class="font-bold text-lg leading-tight">Are you sure?</h3>
+    </div>
+    <p id="modalMessage" class="text-sm text-on-surface-variant mb-5 leading-relaxed"></p>
+    <div class="flex justify-end gap-2">
+      <button id="modalCancelBtn" class="hover-lift px-4 py-2 rounded-lg border-2 border-outline-variant text-on-surface-variant font-bold text-sm hover:border-outline transition-colors">Cancel</button>
+      <button id="modalConfirmBtn" class="hover-lift px-4 py-2 rounded-lg bg-error text-on-primary font-bold text-sm">OK</button>
+    </div>
+  </div>
+</div>
+
+<main class="p-3 sm:p-6 flex flex-col lg:flex-row gap-4 max-w-full overflow-x-hidden items-start">
+
+  <!-- Build menu: opens inline, beside the map, pushing content over (no overlay) -->
+  <nav id="buildRail" class="bg-surface-container rounded-xl shrink-0 w-full lg:w-auto">
+    <div class="flex flex-col gap-2 p-4 w-full lg:w-[264px]">
+      <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary text-[20px]">construction</span>
+          <span class="font-bold text-sm uppercase tracking-widest">Build Menu</span>
+        </div>
+        <button id="closeRailBtn" class="hover-lift w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container-high transition-colors" aria-label="Close build menu">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <span class="rail-label mb-0.5">Build</span>
+      <button data-mode="add" class="mode-btn pill-btn rail-btn hover-lift active px-3 py-2.5 rounded-lg bg-surface-container-high text-on-surface text-sm font-bold w-full border border-outline-variant">
+        <span class="material-symbols-outlined text-[18px]">add_location</span> Add Node
+      </button>
+      <button data-mode="connect" class="mode-btn pill-btn rail-btn hover-lift px-3 py-2.5 rounded-lg bg-surface-container-high text-on-surface text-sm font-bold w-full border border-outline-variant">
+        <span class="material-symbols-outlined text-[18px]">timeline</span> Connect Nodes
+      </button>
+      <button data-mode="delete" class="mode-btn pill-btn rail-btn hover-lift px-3 py-2.5 rounded-lg bg-surface-container-high text-on-surface text-sm font-bold w-full border border-outline-variant">
+        <span class="material-symbols-outlined text-[18px]">delete</span> Delete Node
+      </button>
+
+      <div class="h-px bg-outline-variant/40 my-2"></div>
+      <span class="rail-label mb-0.5">Graph</span>
+
+      <button id="resetEmptyBtn" class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-surface-container-high text-error text-sm font-bold w-full border border-outline-variant hover:border-error transition-colors">
+        <span class="material-symbols-outlined text-[18px]">mop</span> Clear Map
+      </button>
+      <button id="resetSampleBtn" class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-surface-container-high text-on-surface-variant text-sm font-bold w-full border border-outline-variant hover:border-primary transition-colors">
+        <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Load Sample
+      </button>
+
+      <div class="h-px bg-outline-variant/40 my-2"></div>
+      <span class="rail-label mb-0.5">File</span>
+
+      <button id="saveGraphBtn" class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-success-mint/10 text-success-mint text-sm font-bold w-full border border-success-mint/40 hover:bg-success-mint hover:text-on-primary-fixed transition-colors">
+        <span class="material-symbols-outlined text-[18px]">save</span> Save Graph
+      </button>
+      <label class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-success-mint/10 text-success-mint text-sm font-bold w-full border border-success-mint/40 hover:bg-success-mint hover:text-on-primary-fixed transition-colors cursor-pointer">
+        <span class="material-symbols-outlined text-[18px]">upload</span> Load Graph
+        <input id="loadGraphInput" type="file" accept=".txt" class="hidden">
+      </label>
+
+      <p id="hint" class="mt-2 pt-3 text-xs text-on-surface-variant italic border-t border-outline-variant/40">Click empty space on the map to add a node.</p>
+    </div>
+  </nav>
+
+  <!-- Content column -->
+  <div class="flex-1 flex flex-col gap-4 min-w-0 w-full">
+
+    <!-- Menu toggle + live status -->
+    <div class="flex flex-wrap items-center gap-2.5 sm:gap-3 bg-surface-container border border-outline-variant rounded-xl px-3 sm:px-4 py-2.5">
+      <button id="menuToggleBtn" aria-expanded="false" aria-controls="buildRail" class="hover-lift flex items-center gap-2 px-3.5 py-2 rounded-lg bg-primary text-on-primary text-xs sm:text-sm font-bold hover:-translate-y-0.5 transition-all shrink-0">
+        <span class="material-symbols-outlined text-[18px]">menu</span> Build Menu
+      </button>
+      <div class="hidden sm:block h-6 w-px bg-outline-variant/40"></div>
+      <span id="modeChip" class="chip shrink-0"></span>
+      <span id="hintEcho" class="text-[11px] sm:text-xs text-on-surface-variant italic truncate min-w-0"></span>
+    </div>
+
+
+    <!-- Path controls: side by side, wraps on small screens -->
+    <div class="flex flex-wrap items-end gap-4 sm:gap-6 bg-surface-container border border-outline-variant rounded-xl p-3 sm:p-4">
+      <div>
+        <label class="text-xs font-bold uppercase tracking-widest text-secondary block mb-1">Start Node</label>
+        <select id="startSelect" class="bg-surface-container-high border border-outline-variant rounded-lg px-3 py-2 text-on-surface w-full"></select>
+      </div>
+      <div>
+        <label class="text-xs font-bold uppercase tracking-widest text-accent-coral block mb-1">Goal Node</label>
+        <select id="goalSelect" class="bg-surface-container-high border border-outline-variant rounded-lg px-3 py-2 text-on-surface w-full"></select>
+      </div>
+      <div class="flex-1 min-w-[140px] sm:flex-none">
+        <label class="text-xs font-bold uppercase tracking-widest text-primary block mb-1">Cipher Key: <span id="keyLabel">3</span></label>
+        <input id="cipherKey" type="range" min="0" max="25" value="3" class="w-full sm:w-40 accent-secondary">
+      </div>
+      <button id="executeBtn" class="hover-lift w-full sm:w-auto sm:ml-auto h-11 px-6 bg-primary text-on-primary font-bold rounded-xl flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-all">
+        <span class="material-symbols-outlined">rocket_launch</span> Find Path
+      </button>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-4 lg:min-h-[500px]">
+      <!-- Map -->
+      <div class="lg:flex-[2] h-[320px] sm:h-[420px] lg:h-auto bg-surface-container-lowest border border-outline-variant rounded-xl relative overflow-hidden">
+        <svg id="graphSvg" viewBox="0 0 1000 600" class="w-full h-full"></svg>
+        <div id="mapBadge" class="absolute top-2.5 left-2.5 chip"></div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="w-full lg:w-96 flex flex-col gap-4">
+
+        <!-- Computation log -->
+        <div class="flex-1 bg-surface-container border border-outline-variant rounded-xl overflow-hidden flex flex-col">
+          <div class="p-3 border-b border-outline-variant bg-surface-container-high flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-[20px]">terminal</span>
+            <h2 class="font-bold">Computation Log</h2>
+            <span id="logCount" class="ml-auto chip"></span>
+          </div>
+          <div id="logPanel" class="flex-1 p-2 font-mono text-xs text-on-surface-variant overflow-y-auto space-y-0.5 max-h-64">
+            <div class="opacity-50 px-2 py-1">Awaiting execution command...</div>
+          </div>
+        </div>
+
+        <!-- Encrypted export -->
+        <div class="bg-surface-container border border-secondary/30 rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="material-symbols-outlined text-secondary bg-secondary/20 p-1.5 rounded-lg lock-pulse">lock</span>
+            <span class="font-bold text-secondary text-lg">Encrypted Export</span>
+          </div>
+
+          <div id="exportStats" class="hidden flex flex-wrap gap-1.5 mb-3"></div>
+
+          <div class="cipher-frame bg-black border border-secondary/40 rounded-xl p-3 shadow-[0_0_28px_-12px_rgba(224,182,255,0.45)]">
+            <div id="terminalPreview" class="relative font-mono text-xs text-on-surface-variant min-h-[110px] whitespace-pre-wrap">Run a path first...</div>
+          </div>
+
+          <div class="flex gap-2 mt-3">
+            <button id="exportBtn" disabled class="hover-lift flex-1 py-3 bg-secondary/10 border-2 border-secondary text-secondary font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-secondary hover:text-on-secondary transition-all">
+              <span class="material-symbols-outlined text-[20px]">download</span> Export .txt
+            </button>
+            <button id="copyBtn" disabled class="hover-lift px-4 py-3 bg-surface-container-high border-2 border-outline-variant text-on-surface-variant font-bold rounded-xl flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-all" title="Copy encrypted output">
+              <span class="material-symbols-outlined text-[20px]">content_copy</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// Anime.js (v4, UMD global) — used for lightweight entrance/feedback/path-reveal motion.
+// Falls back gracefully to no-ops if the CDN script didn't load, so the app never breaks.
+const { animate, stagger, svg: animeSvg, scrambleText } = window.anime || {};
+const canAnimate = typeof animate === 'function';
+
+let GRAPH = { nodes: [], edges: [] };
+let mode = 'add';
+let connectFirstNode = null; // holds node id when in connect mode, first click done
+
+const HINTS = {
+  add: 'Click empty space on the map to add a node.',
+  connect: 'Click a node, then click a second node to connect them. Weight auto-fills based on distance between them.',
+  delete: 'Click a node to delete it (and its edges).',
+};
+
+const MODE_META = {
+  add: { icon: 'add_location', label: 'Add Node' },
+  connect: { icon: 'timeline', label: 'Connect Nodes' },
+  delete: { icon: 'delete', label: 'Delete Node' },
+};
+
+// Entrance animation for the header + toolbars on first load.
+function playIntroAnimation() {
+  if (!canAnimate) return;
+  animate('header', { opacity: [0, 1], translateY: [-12, 0], duration: 500, ease: 'outQuad' });
+  animate('header svg', { scale: [0, 1], duration: 600, delay: 120, ease: 'outElastic(1, .6)' });
+  animate('main > *', {
+    opacity: [0, 1],
+    translateY: [16, 0],
+    duration: 500,
+    delay: stagger(90, { start: 150 }),
+    ease: 'outQuad',
+  });
+}
+
+/* --- In-app confirm modal: replaces the native browser confirm() dialog --- */
+function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK', danger = true } = {}) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById('modalBackdrop');
+    const icon = document.getElementById('modalIcon');
+    const confirmBtn = document.getElementById('modalConfirmBtn');
+    const cancelBtn = document.getElementById('modalCancelBtn');
+
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMessage').textContent = message;
+    confirmBtn.textContent = confirmLabel;
+    icon.textContent = danger ? 'warning' : 'help';
+    icon.className = `material-symbols-outlined p-1.5 rounded-lg text-[20px] ${danger ? 'text-error bg-error/15' : 'text-primary bg-primary/15'}`;
+    confirmBtn.className = `hover-lift px-4 py-2 rounded-lg font-bold text-sm ${danger ? 'bg-error text-on-primary' : 'bg-primary text-on-primary'}`;
+
+    backdrop.classList.remove('hidden-modal');
+
+    function cleanup(result) {
+      backdrop.classList.add('hidden-modal');
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      backdrop.removeEventListener('click', onBackdropClick);
+      document.removeEventListener('keydown', onKeydown);
+      resolve(result);
+    }
+    function onConfirm() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdropClick(e) { if (e.target === backdrop) cleanup(false); }
+    function onKeydown(e) { if (e.key === 'Escape') cleanup(false); if (e.key === 'Enter') cleanup(true); }
+
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    backdrop.addEventListener('click', onBackdropClick);
+    document.addEventListener('keydown', onKeydown);
+  });
+}
+
+/* --- Toasts: replaces the native browser alert() --- */
+function showToast(message, type = 'error') {
+  const stack = document.getElementById('toastStack');
+  const el = document.createElement('div');
+  const styles = type === 'error'
+    ? 'bg-surface-container border-error/50 text-error'
+    : 'bg-surface-container border-primary/50 text-primary';
+  const icon = type === 'error' ? 'error' : 'info';
+  el.className = `toast pointer-events-auto w-full flex items-center gap-2 px-4 py-3 rounded-xl border ${styles} font-semibold text-sm shadow-2xl opacity-0`;
+  el.style.transform = 'translateY(-10px)';
+  el.innerHTML = `<span class="material-symbols-outlined text-[18px] shrink-0">${icon}</span><span class="flex-1">${escapeHtml(message)}</span>`;
+  stack.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = 1; el.style.transform = 'translateY(0)'; });
+  setTimeout(() => {
+    el.style.opacity = 0;
+    el.style.transform = 'translateY(-10px)';
+    setTimeout(() => el.remove(), 300);
+  }, 3200);
+}
+
+/* --- Build menu: inline panel beside the map (push layout, no overlay) --- */
+const buildRail = document.getElementById('buildRail');
+const menuToggleBtn = document.getElementById('menuToggleBtn');
+
+function openRail() {
+  buildRail.classList.add('open');
+  menuToggleBtn.setAttribute('aria-expanded', 'true');
+}
+function closeRail() {
+  buildRail.classList.remove('open');
+  menuToggleBtn.setAttribute('aria-expanded', 'false');
+}
+menuToggleBtn.addEventListener('click', () => {
+  buildRail.classList.contains('open') ? closeRail() : openRail();
+});
+document.getElementById('closeRailBtn').addEventListener('click', closeRail);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRail(); });
+
+function setMode(newMode) {
+  mode = newMode;
+  connectFirstNode = null;
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === newMode);
+  });
+  document.getElementById('hint').textContent = HINTS[newMode];
+  document.getElementById('hintEcho').textContent = HINTS[newMode];
+  const meta = MODE_META[newMode];
+  document.getElementById('modeChip').innerHTML = `<span class="material-symbols-outlined text-[13px] text-primary">${meta.icon}</span> ${meta.label}`;
+  document.getElementById('graphSvg').classList.toggle('mode-connect', newMode === 'connect');
+  drawGraph(); // clear any connect-mode highlight (no entrance replay — just a redraw)
+}
+
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setMode(btn.dataset.mode);
+    if (canAnimate) animate(btn, { scale: [0.88, 1], duration: 320, ease: 'outBack(1.6)' });
+    // Panel now sits beside the map instead of covering it, so it stays open
+    // between actions — close it manually via the toggle, X, or Escape.
+  });
+});
+
+async function loadGraph(highlightPath) {
+  const res = await fetch('/api/graph');
+  GRAPH = await res.json();
+  refreshNodeSelects();
+  updateMapBadge();
+  drawGraph(highlightPath, true); // true = play the node/edge entrance animation
+}
+
+function updateMapBadge() {
+  const badge = document.getElementById('mapBadge');
+  badge.innerHTML = `<span class="material-symbols-outlined text-[13px] text-primary">hub</span> ${GRAPH.nodes.length} nodes &middot; ${GRAPH.edges.length} edges`;
+}
+
+function refreshNodeSelects() {
+  const startSel = document.getElementById('startSelect');
+  const goalSel = document.getElementById('goalSelect');
+  const prevStart = startSel.value, prevGoal = goalSel.value;
+  startSel.innerHTML = '';
+  goalSel.innerHTML = '';
+  GRAPH.nodes.forEach(n => {
+    startSel.innerHTML += `<option value="${n.id}">${n.id}</option>`;
+    goalSel.innerHTML += `<option value="${n.id}">${n.id}</option>`;
+  });
+  if (GRAPH.nodes.some(n => n.id === prevStart)) startSel.value = prevStart;
+  if (GRAPH.nodes.some(n => n.id === prevGoal)) goalSel.value = prevGoal;
+  else if (GRAPH.nodes.length) goalSel.value = GRAPH.nodes[GRAPH.nodes.length - 1].id;
+}
+
+function drawGraph(highlightPath, animateEntrance) {
+  const svg = document.getElementById('graphSvg');
+  svg.innerHTML = '';
+  const pathSet = new Set();
+  if (highlightPath) {
+    for (let i = 0; i < highlightPath.length - 1; i++) {
+      pathSet.add(highlightPath[i] + '-' + highlightPath[i + 1]);
+      pathSet.add(highlightPath[i + 1] + '-' + highlightPath[i]);
+    }
+  }
+
+  const nodeMap = {};
+  GRAPH.nodes.forEach(n => nodeMap[n.id] = n);
+
+  // grid background
+  let grid = '<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">' +
+    '<path d="M 40 0 L 0 0 0 40" fill="none" stroke="#3d484d" stroke-width="1" opacity="0.25"/></pattern></defs>' +
+    '<rect width="100%" height="100%" fill="url(#grid)"/>';
+  svg.innerHTML += grid;
+
+  GRAPH.edges.forEach(e => {
+    const a = nodeMap[e.from], b = nodeMap[e.to];
+    if (!a || !b) return;
+    const active = pathSet.has(e.from + '-' + e.to);
+    svg.innerHTML += `<line class="edge-line" data-from="${e.from}" data-to="${e.to}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+      stroke="${active ? '#5bd5fc' : '#3d484d'}" stroke-width="${active ? 3 : 2}" />`;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    svg.innerHTML += `<g class="edge-label">
+      <rect x="${mx - 16}" y="${my - 10}" width="32" height="20" rx="4" fill="#201f1f" stroke="#3d484d"/>
+      <text x="${mx}" y="${my + 4}" fill="#bcc8ce" font-size="11" text-anchor="middle" font-family="JetBrains Mono">${e.weight}</text>
+    </g>`;
+  });
+
+  GRAPH.nodes.forEach(n => {
+    const isStart = highlightPath && highlightPath[0] === n.id;
+    const isGoal = highlightPath && highlightPath[highlightPath.length - 1] === n.id;
+    const isSelected = connectFirstNode === n.id;
+    let fill = '#131313';
+    if (isStart) fill = '#4cc9f0';
+    else if (isGoal) fill = '#f72585';
+    else if (isSelected) fill = '#e0b6ff';
+    svg.innerHTML += `<circle class="node-circle" data-id="${n.id}" cx="${n.x}" cy="${n.y}" r="16" fill="${fill}" stroke="#e5e2e1" stroke-width="2"/>
+      <text style="pointer-events:none" x="${n.x}" y="${n.y + 4}" fill="#e5e2e1" font-size="13" text-anchor="middle" font-weight="600" font-family="Quicksand">${n.id}</text>`;
+  });
+
+  // Attach click handlers to nodes
+  svg.querySelectorAll('.node-circle').forEach(circle => {
+    circle.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      handleNodeClick(circle.dataset.id);
+    });
+  });
+
+  if (animateEntrance && canAnimate) {
+    // Edges draw themselves in, like ink tracing the connections
+    const drawableLines = animeSvg.createDrawable('#graphSvg .edge-line');
+    if (drawableLines.length) {
+      animate(drawableLines, {
+        draw: ['0 0', '0 1'],
+        duration: 450,
+        delay: stagger(35),
+        ease: 'inOutQuad',
+      });
+    }
+    animate('#graphSvg .edge-label', {
+      opacity: [0, 1],
+      duration: 350,
+      delay: stagger(35, { start: 250 }),
+      ease: 'outQuad',
+    });
+    // Nodes pop in with a little bounce, weight labels trailing just after
+    animate('#graphSvg .node-circle', {
+      r: [0, 16],
+      opacity: [0, 1],
+      duration: 500,
+      delay: stagger(45, { start: 150 }),
+      ease: 'outElastic(1, .6)',
+    });
+    animate('#graphSvg text', {
+      opacity: [0, 1],
+      duration: 300,
+      delay: stagger(45, { start: 300 }),
+      ease: 'outQuad',
+    });
+  }
+}
+
+// Sends a little pulse traveling node-by-node, edge-by-edge along the found path.
+function animatePathReveal(path) {
+  if (!canAnimate || !path || path.length < 2) return;
+  const svgEl = document.getElementById('graphSvg');
+  const stepDelay = 160;
+  path.forEach((nodeId, i) => {
+    const circle = svgEl.querySelector(`.node-circle[data-id="${nodeId}"]`);
+    if (circle) {
+      animate(circle, {
+        scale: [1, 1.4, 1],
+        duration: 420,
+        delay: i * stepDelay,
+        ease: 'outQuad',
+      });
+    }
+    if (i < path.length - 1) {
+      const a = path[i], b = path[i + 1];
+      const line = svgEl.querySelector(`.edge-line[data-from="${a}"][data-to="${b}"], .edge-line[data-from="${b}"][data-to="${a}"]`);
+      if (line) {
+        animate(line, {
+          'stroke-width': [3, 7, 3],
+          duration: 420,
+          delay: i * stepDelay + stepDelay / 2,
+          ease: 'outQuad',
+        });
+      }
+    }
+  });
+}
+
+function svgCoords(evt) {
+  const svg = document.getElementById('graphSvg');
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: Math.round(loc.x), y: Math.round(loc.y) };
+}
+
+document.getElementById('graphSvg').addEventListener('click', async (evt) => {
+  if (mode !== 'add') return; // clicks on nodes are handled separately and stop propagation
+  const { x, y } = svgCoords(evt);
+  const res = await fetch('/api/nodes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x, y })
+  });
+  const data = await res.json();
+  if (data.error) { showToast(data.error, 'error'); return; }
+  await loadGraph();
+});
+
+async function handleNodeClick(nodeId) {
+  if (mode === 'delete') {
+    const ok = await showConfirm({
+      title: `Delete node ${nodeId}?`,
+      message: 'This also removes every edge connected to it. This can\'t be undone.',
+      confirmLabel: 'Delete Node',
+      danger: true,
+    });
+    if (!ok) return;
+    await fetch(`/api/nodes/${nodeId}`, { method: 'DELETE' });
+    await loadGraph();
+    return;
+  }
+
+  if (mode === 'connect') {
+    if (!connectFirstNode) {
+      connectFirstNode = nodeId;
+      document.getElementById('hint').textContent = `Selected ${nodeId}. Click a second node to connect.`;
+      drawGraph();
+      return;
+    }
+    if (connectFirstNode === nodeId) {
+      connectFirstNode = null;
+      drawGraph();
+      return;
+    }
+    const secondNode = nodeId;
+    const res = await fetch('/api/edges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: connectFirstNode, to: secondNode })
+    });
+    const data = await res.json();
+    connectFirstNode = null;
+    if (data.error) { showToast(data.error, 'error'); }
+    document.getElementById('hint').textContent = HINTS.connect;
+    await loadGraph();
+  }
+}
+
+document.getElementById('resetEmptyBtn').addEventListener('click', async () => {
+  const ok = await showConfirm({
+    title: 'Clear the entire map?',
+    message: 'Every node and edge you\'ve placed will be removed. This can\'t be undone.',
+    confirmLabel: 'Clear Map',
+    danger: true,
+  });
+  if (!ok) return;
+  await fetch('/api/graph/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seed: false })
+  });
+  await loadGraph();
+  resetSidebar();
+});
+
+document.getElementById('resetSampleBtn').addEventListener('click', async () => {
+  await fetch('/api/graph/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seed: true })
+  });
+  await loadGraph();
+  resetSidebar();
+});
+
+document.getElementById('saveGraphBtn').addEventListener('click', () => {
+  window.location.href = '/api/graph/save';
+});
+
+document.getElementById('loadGraphInput').addEventListener('change', async (evt) => {
+  const file = evt.target.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch('/api/graph/load', { method: 'POST', body: formData });
+  const data = await res.json();
+  if (data.error) { showToast(data.error, 'error'); }
+  await loadGraph();
+  resetSidebar();
+  evt.target.value = ''; // allow re-uploading the same filename later
+});
+
+function resetSidebar() {
+  document.getElementById('logPanel').innerHTML = '<div class="opacity-50 px-2 py-1">Awaiting execution command...</div>';
+  document.getElementById('logCount').textContent = '';
+  document.getElementById('terminalPreview').textContent = 'Run a path first...';
+  document.getElementById('exportStats').classList.add('hidden');
+  document.getElementById('exportStats').innerHTML = '';
+  document.getElementById('exportBtn').disabled = true;
+  document.getElementById('copyBtn').disabled = true;
+}
+
+document.getElementById('cipherKey').addEventListener('input', (e) => {
+  document.getElementById('keyLabel').textContent = e.target.value;
+});
+
+// Classifies a raw log line so it can be rendered with a matching icon/color.
+function logLineMeta(line) {
+  if (/Goal reached/i.test(line)) return { icon: 'flag_circle', color: 'text-accent-coral' };
+  if (/No path/i.test(line)) return { icon: 'error', color: 'text-error' };
+  if (/Expanding node/i.test(line)) return { icon: 'radar', color: 'text-primary' };
+  if (/Found neighbors/i.test(line)) return { icon: 'hub', color: 'text-on-surface-variant' };
+  return { icon: 'chevron_right', color: 'text-on-surface-variant' };
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+document.getElementById('executeBtn').addEventListener('click', async () => {
+  const start = document.getElementById('startSelect').value;
+  const goal = document.getElementById('goalSelect').value;
+  const cipher_key = parseInt(document.getElementById('cipherKey').value, 10);
+
+  if (!start || !goal) { showToast('Add nodes and pick a start/goal first.', 'error'); return; }
+
+  if (canAnimate) animate('#executeBtn', { scale: [1, 0.93, 1], duration: 260, ease: 'outQuad' });
+
+  const res = await fetch('/api/pathfind', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({start, goal, cipher_key})
+  });
+  const data = await res.json();
+
+  const logPanel = document.getElementById('logPanel');
+  const logCount = document.getElementById('logCount');
+  if (data.error) {
+    logPanel.innerHTML = `<div class="log-row flex items-start gap-2 px-2 py-1.5"><span class="material-symbols-outlined text-[15px] text-error mt-0.5">error</span><span class="text-error text-[11px] sm:text-xs">${escapeHtml(data.error)}</span></div>`;
+    logCount.textContent = '';
+    return;
+  }
+
+  logPanel.innerHTML = data.log.map(l => {
+    const meta = logLineMeta(l);
+    return `<div class="log-row flex items-start gap-2 px-2 py-1.5 rounded-lg">
+      <span class="material-symbols-outlined text-[15px] ${meta.color} mt-0.5 shrink-0">${meta.icon}</span>
+      <span class="text-[11px] sm:text-xs leading-relaxed ${meta.color}">${escapeHtml(l)}</span>
+    </div>`;
+  }).join('');
+  logCount.innerHTML = `<span class="material-symbols-outlined text-[13px]">list</span> ${data.log.length} steps`;
+
+  if (canAnimate) {
+    animate('#logPanel .log-row', {
+      opacity: [0, 1],
+      translateX: [-8, 0],
+      duration: 260,
+      delay: stagger(18),
+      ease: 'outQuad',
+    });
+  }
+
+  drawGraph(data.path); // no entrance replay here — animatePathReveal() below does the reveal
+  animatePathReveal(data.path);
+
+  // Quick-glance stat chips above the encrypted dump
+  const statsEl = document.getElementById('exportStats');
+  statsEl.classList.remove('hidden');
+  statsEl.innerHTML = `
+    <span class="chip"><span class="material-symbols-outlined text-[13px] text-primary">route</span> ${data.path.length} nodes</span>
+    <span class="chip"><span class="material-symbols-outlined text-[13px] text-success-mint">straighten</span> cost ${data.cost}</span>
+    <span class="chip"><span class="material-symbols-outlined text-[13px] text-secondary">key</span> key ${data.cipher_key}</span>
+  `;
+
+  const preview = document.getElementById('terminalPreview');
+  const edgeLines = data.encrypted_edges
+    .map(e => `${e.from}->${e.to} : ${e.encrypted_weight}  (plain ${e.plain_weight})`)
+    .join('\n');
+  const finalText =
+`> Path: ${data.path.join(' -> ')}
+> Encrypted Path: ${data.encrypted_path}
+> Cost: ${data.cost}
+> Cipher Key: ${data.cipher_key}
+> Encrypted Edge Weights:
+${edgeLines}`;
+
+  // Decrypt-style character scramble reveal, fitting the cipher theme.
+  if (canAnimate && scrambleText) {
+    animate(preview, { innerHTML: scrambleText({ text: finalText }) });
+  } else {
+    preview.textContent = finalText;
+  }
+
+  const exportBtn = document.getElementById('exportBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  exportBtn.disabled = false;
+  copyBtn.disabled = false;
+  copyBtn.dataset.payload = finalText;
+  if (canAnimate) {
+    animate([exportBtn, copyBtn], { scale: [0.9, 1], opacity: [0.5, 1], duration: 420, ease: 'outElastic(1, .6)' });
+    animate('#exportStats .chip', { opacity: [0, 1], scale: [0.7, 1], duration: 380, delay: stagger(60), ease: 'outBack(1.5)' });
+  }
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  window.location.href = '/api/download';
+});
+
+document.getElementById('copyBtn').addEventListener('click', async (evt) => {
+  const payload = evt.currentTarget.dataset.payload || '';
+  if (!payload) return;
+  try {
+    await navigator.clipboard.writeText(payload);
+    const icon = evt.currentTarget.querySelector('.material-symbols-outlined');
+    const original = icon.textContent;
+    icon.textContent = 'check';
+    setTimeout(() => { icon.textContent = original; }, 1200);
+  } catch (e) {  }
+});
+
+setMode('add');
+loadGraph();
+playIntroAnimation();
+</script>
+</body>
+</html>
