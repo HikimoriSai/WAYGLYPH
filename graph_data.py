@@ -1,32 +1,40 @@
 from geometry import distance_between_nodes
 
 NODES = {
-    "A": (200, 150),
-    "B": (450, 300),
-    "C": (700, 200),
-    "D": (300, 400),
-    "E": (550, 500),
-    "F": (850, 450),
+    "A": (180, 120),
+    "B": (600, 120),
+    "C": (600, 400),
+    "D": (180, 400),
+    "E": (320, 220),
+    "F": (740, 220),
+    "G": (740, 500),
+    "H": (320, 500),
 }
 
-# Which node pairs are connected (undirected). Weights are computed below.
 _CONNECTIONS = [
     ("A", "B"),
     ("B", "C"),
-    ("A", "D"),
-    ("D", "E"),
-    ("B", "E"),
-    ("C", "F"),
+    ("C", "D"),
+    ("D", "A"),
     ("E", "F"),
+    ("F", "G"),
+    ("G", "H"),
+    ("H", "E"),
+    ("A", "E"),
+    ("B", "F"),
+    ("C", "G"),
+    ("D", "H"),
 ]
 
 
 def build_edges():
     edges = {node: [] for node in NODES}
+
     for a, b in _CONNECTIONS:
         weight = round(distance_between_nodes(NODES, a, b), 1)
         edges[a].append((b, weight))
         edges[b].append((a, weight))
+
     return edges
 
 

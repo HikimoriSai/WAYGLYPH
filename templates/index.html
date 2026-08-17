@@ -67,6 +67,18 @@
     }
   }
 
+  /* --- Encryption Lab: hidden until opened from the build menu --- */
+  #cipherLab{
+    overflow:hidden;
+    opacity:0;
+    max-height:0;
+    transition:max-height .4s cubic-bezier(.32,.72,0,1), opacity .3s ease;
+  }
+  #cipherLab.open{
+    opacity:1;
+    max-height:1400px;
+  }
+
   /* --- Signature logo mark --- */
   .glyph-mark{filter:drop-shadow(0 0 5px rgba(147,226,255,.35));}
 
@@ -129,7 +141,7 @@
   </svg>
   <div class="flex flex-col leading-tight">
     <span class="font-bold text-lg sm:text-2xl tracking-tighter uppercase">Wayglyph</span>
-    <span class="hidden sm:block text-[10px] tracking-widest uppercase text-on-surface-variant font-semibold">A* Pathfinding, Caesar-Sealed</span>
+    <span class="hidden sm:block text-[10px] tracking-widest uppercase text-on-surface-variant font-semibold">A* Pathfinding, Caesar Cipher</span>
   </div>
 </header>
 
@@ -198,6 +210,13 @@
         <input id="loadGraphInput" type="file" accept=".txt" class="hidden">
       </label>
 
+      <div class="h-px bg-outline-variant/40 my-2"></div>
+      <span class="rail-label mb-0.5">Cipher Tools</span>
+
+      <button id="cipherLabToggleBtn" aria-expanded="false" aria-controls="cipherLab" class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-accent-coral/10 text-accent-coral text-sm font-bold w-full border border-accent-coral/40 hover:bg-accent-coral hover:text-on-primary-fixed transition-colors">
+        <span class="material-symbols-outlined text-[18px]">enhanced_encryption</span> Encryption Lab
+      </button>
+
       <p id="hint" class="mt-2 pt-3 text-xs text-on-surface-variant italic border-t border-outline-variant/40">Click empty space on the map to add a node.</p>
     </div>
   </nav>
@@ -253,34 +272,110 @@
             <span id="logCount" class="ml-auto chip"></span>
           </div>
           <div id="logPanel" class="flex-1 p-2 font-mono text-xs text-on-surface-variant overflow-y-auto space-y-0.5 max-h-64">
-            <div class="opacity-50 px-2 py-1">Awaiting execution command...</div>
-          </div>
-        </div>
-
-        <!-- Encrypted export -->
-        <div class="bg-surface-container border border-secondary/30 rounded-xl p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <span class="material-symbols-outlined text-secondary bg-secondary/20 p-1.5 rounded-lg lock-pulse">lock</span>
-            <span class="font-bold text-secondary text-lg">Encrypted Export</span>
-          </div>
-
-          <div id="exportStats" class="hidden flex flex-wrap gap-1.5 mb-3"></div>
-
-          <div class="cipher-frame bg-black border border-secondary/40 rounded-xl p-3 shadow-[0_0_28px_-12px_rgba(224,182,255,0.45)]">
-            <div id="terminalPreview" class="relative font-mono text-xs text-on-surface-variant min-h-[110px] whitespace-pre-wrap">Run a path first...</div>
-          </div>
-
-          <div class="flex gap-2 mt-3">
-            <button id="exportBtn" disabled class="hover-lift flex-1 py-3 bg-secondary/10 border-2 border-secondary text-secondary font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-secondary hover:text-on-secondary transition-all">
-              <span class="material-symbols-outlined text-[20px]">download</span> Export .txt
-            </button>
-            <button id="copyBtn" disabled class="hover-lift px-4 py-3 bg-surface-container-high border-2 border-outline-variant text-on-surface-variant font-bold rounded-xl flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-all" title="Copy encrypted output">
-              <span class="material-symbols-outlined text-[20px]">content_copy</span>
-            </button>
+            <div class="opacity-50 px-2 py-1">Waiting Finding Path...</div>
           </div>
         </div>
 
       </div>
+    </div>
+
+    <!-- Encryption Lab: hidden until opened from the build menu -->
+    <div id="cipherLab" class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+
+      <!-- Path Cipher (the encrypted result of the last Find Path run) -->
+      <div class="bg-surface-container border border-secondary/30 rounded-xl p-4 flex flex-col">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-secondary bg-secondary/20 p-1.5 rounded-lg lock-pulse">lock</span>
+          <span class="font-bold text-secondary text-lg">Path Cipher</span>
+        </div>
+
+        <div id="exportStats" class="hidden flex flex-wrap gap-1.5 mb-3"></div>
+
+        <div class="cipher-frame bg-black border border-secondary/40 rounded-xl p-3 flex-1 min-h-[110px] shadow-[0_0_28px_-12px_rgba(224,182,255,0.45)]">
+          <div id="terminalPreview" class="relative font-mono text-xs text-on-surface-variant whitespace-pre-wrap">Run a path first...</div>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button id="exportBtn" disabled class="hover-lift flex-1 py-3 bg-secondary/10 border-2 border-secondary text-secondary font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-secondary hover:text-on-secondary transition-all">
+            <span class="material-symbols-outlined text-[20px]">download</span> Export .txt
+          </button>
+          <button id="copyBtn" disabled class="hover-lift px-4 py-3 bg-surface-container-high border-2 border-outline-variant text-on-surface-variant font-bold rounded-xl flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-all" title="Copy encrypted output">
+            <span class="material-symbols-outlined text-[20px]">content_copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Message Encryptor -->
+      <div class="bg-surface-container border border-primary/30 rounded-xl p-4 flex flex-col">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-primary bg-primary/15 p-1.5 rounded-lg">edit_note</span>
+          <span class="font-bold text-primary text-lg">Message Encryptor</span>
+        </div>
+
+        <label class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1 block">Write a message</label>
+        <textarea id="msgPlainInput" rows="3" placeholder="Write a message to encrypt..." class="hover-lift bg-surface-container-high border border-outline-variant rounded-lg p-2.5 text-sm text-on-surface resize-none mb-3 focus:border-primary outline-none"></textarea>
+
+        <div class="flex items-end gap-3 mb-3">
+          <div class="flex-1">
+            <label class="text-xs font-bold uppercase tracking-widest text-primary block mb-1">Cipher Key: <span id="msgKeyLabel">3</span></label>
+            <input id="msgCipherKey" type="range" min="0" max="25" value="3" class="w-full accent-primary">
+          </div>
+          <button id="msgEncryptBtn" class="hover-lift h-11 px-4 bg-primary text-on-primary font-bold rounded-xl flex items-center gap-2 shrink-0">
+            <span class="material-symbols-outlined text-[18px]">lock</span> Encrypt
+          </button>
+        </div>
+
+        <div class="cipher-frame bg-black border border-primary/40 rounded-xl p-3 flex-1 min-h-[90px] shadow-[0_0_28px_-12px_rgba(147,226,255,0.4)]">
+          <div id="msgEncryptedOutput" class="font-mono text-xs text-on-surface-variant whitespace-pre-wrap break-all">Encrypted output will appear here...</div>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button id="msgDownloadBtn" disabled class="hover-lift flex-1 py-2.5 bg-primary/10 border-2 border-primary text-primary font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-primary hover:text-on-primary transition-all text-sm">
+            <span class="material-symbols-outlined text-[18px]">download</span> Download .txt
+          </button>
+          <button id="msgCopyBtn" disabled class="hover-lift px-3.5 py-2.5 bg-surface-container-high border-2 border-outline-variant text-on-surface-variant font-bold rounded-xl flex items-center justify-center disabled:opacity-40 hover:border-primary hover:text-primary transition-all" title="Copy encrypted message">
+            <span class="material-symbols-outlined text-[18px]">content_copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Decryptor -->
+      <div class="bg-surface-container border border-accent-coral/30 rounded-xl p-4 flex flex-col">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-accent-coral bg-accent-coral/15 p-1.5 rounded-lg">lock_open_right</span>
+          <span class="font-bold text-accent-coral text-lg">Message Decryptor</span>
+        </div>
+
+        <label class="text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1 block">Paste ciphertext, or load a file</label>
+        <textarea id="decryptInput" rows="3" placeholder="Paste an encrypted message, or load a saved encrypted_path.txt export below..." class="hover-lift bg-surface-container-high border border-outline-variant rounded-lg p-2.5 text-xs font-mono text-on-surface resize-none mb-2 focus:border-accent-coral outline-none"></textarea>
+
+        <label class="rail-btn hover-lift px-3 py-2 rounded-lg bg-accent-coral/10 text-accent-coral text-xs font-bold w-full border border-accent-coral/40 hover:bg-accent-coral hover:text-on-primary-fixed transition-colors cursor-pointer justify-center mb-3">
+          <span class="material-symbols-outlined text-[16px]">upload_file</span> Upload Encrypted .txt
+          <input id="decryptFileInput" type="file" accept=".txt" class="hidden">
+        </label>
+
+        <div class="flex items-end gap-3 mb-3">
+          <div class="flex-1">
+            <label class="text-xs font-bold uppercase tracking-widest text-accent-coral block mb-1">Cipher Key: <span id="decryptKeyLabel">3</span></label>
+            <input id="decryptCipherKey" type="range" min="0" max="25" value="3" class="w-full accent-secondary">
+          </div>
+          <button id="decryptBtn" class="hover-lift h-11 px-4 bg-accent-coral text-on-primary font-bold rounded-xl flex items-center gap-2 shrink-0">
+            <span class="material-symbols-outlined text-[18px]">lock_open</span> Decrypt
+          </button>
+        </div>
+
+        <div class="cipher-frame bg-black border border-accent-coral/40 rounded-xl p-3 flex-1 min-h-[90px] shadow-[0_0_28px_-12px_rgba(247,37,133,0.4)]">
+          <div id="decryptOutput" class="font-mono text-xs text-on-surface-variant whitespace-pre-wrap break-all">Decrypted output will appear here...</div>
+        </div>
+
+        <div class="flex gap-2 mt-3">
+          <button id="decryptCopyBtn" disabled class="hover-lift flex-1 py-2.5 bg-surface-container-high border-2 border-outline-variant text-on-surface-variant font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-40 hover:border-accent-coral hover:text-accent-coral transition-all text-sm">
+            <span class="material-symbols-outlined text-[18px]">content_copy</span> Copy Decrypted Text
+          </button>
+        </div>
+        <p class="text-[10px] text-on-surface-variant italic mt-2">Paste any encrypted message, or load an exported <code>encrypted_path.txt</code> — the cipher key and path are picked up automatically.</p>
+      </div>
+
     </div>
   </div>
 </main>
@@ -395,6 +490,168 @@ menuToggleBtn.addEventListener('click', () => {
 });
 document.getElementById('closeRailBtn').addEventListener('click', closeRail);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRail(); });
+
+/* --- Encryption Lab: same push/collapse pattern, toggled from the build menu --- */
+const cipherLab = document.getElementById('cipherLab');
+const cipherLabToggleBtn = document.getElementById('cipherLabToggleBtn');
+
+function openCipherLab() {
+  cipherLab.classList.add('open');
+  cipherLabToggleBtn.setAttribute('aria-expanded', 'true');
+  setTimeout(() => cipherLab.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 120);
+}
+function closeCipherLab() {
+  cipherLab.classList.remove('open');
+  cipherLabToggleBtn.setAttribute('aria-expanded', 'false');
+}
+cipherLabToggleBtn.addEventListener('click', () => {
+  cipherLab.classList.contains('open') ? closeCipherLab() : openCipherLab();
+});
+
+/* --- Caesar cipher, mirroring cipher.py: letters shift mod 26, digits shift mod 10,
+   everything else (spaces, punctuation, arrows) passes through untouched. This lets a
+   single function encrypt/decrypt any free-text message, not just node ids/weights. --- */
+function caesarShiftChar(ch, key) {
+  const code = ch.charCodeAt(0);
+  if (ch >= 'a' && ch <= 'z') return String.fromCharCode(((code - 97 + key) % 26 + 26) % 26 + 97);
+  if (ch >= 'A' && ch <= 'Z') return String.fromCharCode(((code - 65 + key) % 26 + 26) % 26 + 65);
+  if (ch >= '0' && ch <= '9') return String.fromCharCode(((code - 48 + key) % 10 + 10) % 10 + 48);
+  return ch;
+}
+function caesarEncryptMessage(text, key) {
+  return Array.from(text).map(ch => caesarShiftChar(ch, key)).join('');
+}
+function caesarDecryptMessage(text, key) {
+  return caesarEncryptMessage(text, -key);
+}
+
+function downloadTextFile(filename, contents) {
+  const blob = new Blob([contents], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* --- Message Encryptor --- */
+document.getElementById('msgCipherKey').addEventListener('input', (e) => {
+  document.getElementById('msgKeyLabel').textContent = e.target.value;
+});
+
+document.getElementById('msgEncryptBtn').addEventListener('click', () => {
+  const text = document.getElementById('msgPlainInput').value;
+  if (!text.trim()) { showToast('Write a message first.', 'error'); return; }
+  const key = parseInt(document.getElementById('msgCipherKey').value, 10);
+  const encrypted = caesarEncryptMessage(text, key);
+
+  const out = document.getElementById('msgEncryptedOutput');
+  out.textContent = encrypted;
+
+  const downloadBtn = document.getElementById('msgDownloadBtn');
+  const copyBtn = document.getElementById('msgCopyBtn');
+  downloadBtn.disabled = false;
+  copyBtn.disabled = false;
+  downloadBtn.dataset.payload = encrypted;
+  downloadBtn.dataset.key = key;
+  copyBtn.dataset.payload = encrypted;
+
+  if (canAnimate) {
+    animate(out, { opacity: [0, 1], duration: 300, ease: 'outQuad' });
+    animate([downloadBtn, copyBtn], { scale: [0.9, 1], opacity: [0.5, 1], duration: 380, ease: 'outElastic(1, .6)' });
+  }
+});
+
+document.getElementById('msgDownloadBtn').addEventListener('click', (evt) => {
+  const payload = evt.currentTarget.dataset.payload || '';
+  const key = evt.currentTarget.dataset.key || '0';
+  const contents =
+`Wayglyph Encrypted Message
+============================
+Cipher Key: ${key}
+
+${payload}
+`;
+  downloadTextFile('wayglyph_encrypted_message.txt', contents);
+});
+
+document.getElementById('msgCopyBtn').addEventListener('click', async (evt) => {
+  const payload = evt.currentTarget.dataset.payload || '';
+  if (!payload) return;
+  try {
+    await navigator.clipboard.writeText(payload);
+    const icon = evt.currentTarget.querySelector('.material-symbols-outlined');
+    const original = icon.textContent;
+    icon.textContent = 'check';
+    setTimeout(() => { icon.textContent = original; }, 1200);
+  } catch (e) { /* clipboard unavailable — silently ignore */ }
+});
+
+/* --- Decryptor: handles a plain encrypted message OR a full encrypted_path.txt export --- */
+document.getElementById('decryptCipherKey').addEventListener('input', (e) => {
+  document.getElementById('decryptKeyLabel').textContent = e.target.value;
+});
+
+document.getElementById('decryptFileInput').addEventListener('change', async (evt) => {
+  const file = evt.target.files[0];
+  if (!file) return;
+  document.getElementById('decryptInput').value = await file.text();
+  showToast(`Loaded ${file.name}`, 'info');
+});
+
+document.getElementById('decryptBtn').addEventListener('click', () => {
+  const raw = document.getElementById('decryptInput').value;
+  if (!raw.trim()) { showToast('Paste or load something to decrypt first.', 'error'); return; }
+
+  const keyInput = document.getElementById('decryptCipherKey');
+  let key = parseInt(keyInput.value, 10);
+
+  // Auto-detect a Wayglyph/GraphCrypt path export and pull the real key + fields from it.
+  const keyMatch = raw.match(/Cipher Key:\s*(-?\d+)/i);
+  if (keyMatch) {
+    key = parseInt(keyMatch[1], 10);
+    keyInput.value = key;
+    document.getElementById('decryptKeyLabel').textContent = key;
+  }
+
+  const pathMatch = raw.match(/Origin Path \(encrypted\):\s*(\S+)/i);
+  const out = document.getElementById('decryptOutput');
+  let resultText;
+
+  if (pathMatch) {
+    const decryptedPath = caesarDecryptMessage(pathMatch[1].trim(), key);
+    const edgeLines = [...raw.matchAll(/([A-Z]\d*)\s*->\s*([A-Z]\d*)\s*:\s*([\d.\-]+)/g)];
+    const decryptedEdges = edgeLines.map(([, a, b, encWeight]) =>
+      `  ${a} -> ${b} : ${caesarDecryptMessage(encWeight, key)}`
+    );
+    resultText = `Decrypted Path: ${decryptedPath.split('->').join(' -> ')}\n\n` +
+      `Decrypted Edge Weights:\n${decryptedEdges.join('\n') || '  (none found in this file)'}`;
+  } else {
+    resultText = caesarDecryptMessage(raw, key);
+  }
+
+  out.textContent = resultText;
+  const copyBtn = document.getElementById('decryptCopyBtn');
+  copyBtn.disabled = false;
+  copyBtn.dataset.payload = resultText;
+
+  if (canAnimate) animate(out, { opacity: [0, 1], duration: 300, ease: 'outQuad' });
+});
+
+document.getElementById('decryptCopyBtn').addEventListener('click', async (evt) => {
+  const payload = evt.currentTarget.dataset.payload || '';
+  if (!payload) return;
+  try {
+    await navigator.clipboard.writeText(payload);
+    const icon = evt.currentTarget.querySelector('.material-symbols-outlined');
+    const original = icon.textContent;
+    icon.textContent = 'check';
+    setTimeout(() => { icon.textContent = original; }, 1200);
+  } catch (e) { /* clipboard unavailable — silently ignore */ }
+});
 
 function setMode(newMode) {
   mode = newMode;
