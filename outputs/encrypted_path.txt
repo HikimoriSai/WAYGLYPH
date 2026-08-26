@@ -1,9 +1,17 @@
 GraphCrypt Encrypted Export
 ============================
 Cipher Key: 3
-Origin Path (plaintext): A -> H
-Origin Path (encrypted): D->K
-Total Cost (plaintext): 405.00
+Origin Path (plaintext): G -> E -> F -> O -> N -> M -> H -> C -> I -> B
+Origin Path (encrypted): J->H->I->R->Q->P->K->F->L->E
+Total Cost (plaintext): 1554.40
 
 Encrypted Edge Weights (basis for shortest-path cost):
-  A -> H : 738.3  (plain: 405.0)
+  G -> E : 494.5  (plain: 161.2)
+  E -> F : 417.7  (plain: 184.4)
+  F -> O : 564.9  (plain: 231.6)
+  O -> N : 461.2  (plain: 138.9)
+  N -> M : 474.7  (plain: 141.4)
+  M -> H : 548.4  (plain: 215.1)
+  H -> C : 453.3  (plain: 120.0)
+  C -> I : 583.1  (plain: 250.8)
+  I -> B : 444.3  (plain: 111.0)
