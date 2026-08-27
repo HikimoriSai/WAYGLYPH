@@ -254,28 +254,39 @@
       </button>
     </div>
 
-    <div class="flex flex-col lg:flex-row gap-4 lg:min-h-[500px]">
-      <!-- Map -->
-      <div class="lg:flex-[2] h-[320px] sm:h-[420px] lg:h-auto bg-surface-container-lowest border border-outline-variant rounded-xl relative overflow-hidden">
-        <svg id="graphSvg" viewBox="0 0 1000 600" class="w-full h-full"></svg>
-        <div id="mapBadge" class="absolute top-2.5 left-2.5 chip"></div>
-      </div>
+    <!-- Map -->
+    <div class="h-[320px] sm:h-[420px] lg:h-[440px] bg-surface-container-lowest border border-outline-variant rounded-xl relative overflow-hidden">
+      <svg id="graphSvg" viewBox="0 0 1000 600" class="w-full h-full"></svg>
+      <div id="mapBadge" class="absolute top-2.5 left-2.5 chip"></div>
+    </div>
 
-      <!-- Sidebar -->
-      <div class="w-full lg:w-96 flex flex-col gap-4">
-
-        <!-- Computation log -->
-        <div class="flex-1 bg-surface-container border border-outline-variant rounded-xl overflow-hidden flex flex-col">
-          <div class="p-3 border-b border-outline-variant bg-surface-container-high flex items-center gap-2">
-            <span class="material-symbols-outlined text-primary text-[20px]">terminal</span>
-            <h2 class="font-bold">Computation Log</h2>
-            <span id="logCount" class="ml-auto chip"></span>
-          </div>
-          <div id="logPanel" class="flex-1 p-2 font-mono text-xs text-on-surface-variant overflow-y-auto space-y-0.5 max-h-64">
-            <div class="opacity-50 px-2 py-1">Waiting Finding Path...</div>
-          </div>
+    <!-- A* Search Trace -->
+    <div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden flex flex-col">
+      <div class="p-3 border-b border-outline-variant bg-surface-container-high flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary text-[20px]">terminal</span>
+          <h2 class="font-bold tracking-wide text-sm sm:text-base">A* SEARCH TRACE</h2>
+          <span id="logCount" class="chip"></span>
         </div>
-
+        <span class="text-[11px] font-mono text-on-surface-variant">f(n) = g(n) + h(n)</span>
+      </div>
+      <div class="overflow-auto max-h-72">
+        <table class="w-full text-xs font-mono min-w-[640px]">
+          <thead class="sticky top-0 bg-surface-container-high z-10 text-on-surface-variant/70 uppercase text-[10px] tracking-widest">
+            <tr>
+              <th class="text-left font-semibold px-3 py-2">Step</th>
+              <th class="text-left font-semibold px-3 py-2">Edge</th>
+              <th class="text-left font-semibold px-3 py-2">Weight</th>
+              <th class="text-left font-semibold px-3 py-2">G(n)</th>
+              <th class="text-left font-semibold px-3 py-2">H(n)</th>
+              <th class="text-left font-semibold px-3 py-2">F(n)</th>
+              <th class="text-left font-semibold px-3 py-2 font-sans normal-case tracking-normal">Evaluation Status</th>
+            </tr>
+          </thead>
+          <tbody id="logPanel">
+            <tr><td colspan="7" class="px-3 py-4 text-on-surface-variant opacity-50 text-center font-sans">Pick a Start/Goal node and click Find Path...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -317,7 +328,7 @@
               <thead>
                 <tr class="text-on-surface-variant/70 text-left">
                   <th class="font-semibold pb-1">Edge</th>
-                  <th class="font-semibold pb-1">Plain</th>
+                  <th class="font-semibold pb-1">Weight</th>
                   <th class="font-semibold pb-1 text-secondary">Encrypted</th>
                 </tr>
               </thead>
@@ -959,7 +970,7 @@ document.getElementById('loadGraphInput').addEventListener('change', async (evt)
 });
 
 function resetSidebar() {
-  document.getElementById('logPanel').innerHTML = '<div class="opacity-50 px-2 py-1">Awaiting execution command...</div>';
+  document.getElementById('logPanel').innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-on-surface-variant opacity-50 text-center font-sans">Pick a Start/Goal node and click Find Path...</td></tr>';
   document.getElementById('logCount').textContent = '';
   document.getElementById('pathCipherBody').classList.add('hidden');
   document.getElementById('pathCipherEmpty').classList.remove('hidden');
@@ -973,12 +984,13 @@ document.getElementById('cipherKey').addEventListener('input', (e) => {
   document.getElementById('keyLabel').textContent = e.target.value;
 });
 
-// Classifies a raw log line so it can be rendered with a matching icon/color.
-function logLineMeta(line) {
-  if (/Goal reached/i.test(line)) return { icon: 'flag_circle', color: 'text-accent-coral' };
-  if (/No path/i.test(line)) return { icon: 'error', color: 'text-error' };
-  if (/Expanding node/i.test(line)) return { icon: 'radar', color: 'text-primary' };
-  if (/Found neighbors/i.test(line)) return { icon: 'hub', color: 'text-on-surface-variant' };
+// Classifies a structured trace row's status so it renders with a matching icon/color.
+function statusMeta(status) {
+  if (/goal reached/i.test(status)) return { icon: 'flag_circle', color: 'text-accent-coral' };
+  if (/no path/i.test(status)) return { icon: 'error', color: 'text-error' };
+  if (/selected from open set/i.test(status)) return { icon: 'radar', color: 'text-primary' };
+  if (/better route found/i.test(status)) return { icon: 'trending_up', color: 'text-success-mint' };
+  if (/best route updated/i.test(status)) return { icon: 'bolt', color: 'text-secondary' };
   return { icon: 'chevron_right', color: 'text-on-surface-variant' };
 }
 
@@ -1005,22 +1017,34 @@ document.getElementById('executeBtn').addEventListener('click', async () => {
   const logPanel = document.getElementById('logPanel');
   const logCount = document.getElementById('logCount');
   if (data.error) {
-    logPanel.innerHTML = `<div class="log-row flex items-start gap-2 px-2 py-1.5"><span class="material-symbols-outlined text-[15px] text-error mt-0.5">error</span><span class="text-error text-[11px] sm:text-xs">${escapeHtml(data.error)}</span></div>`;
+    logPanel.innerHTML = `<tr><td colspan="7" class="px-3 py-3">
+      <div class="flex items-center gap-2 text-error font-sans text-[11px] sm:text-xs">
+        <span class="material-symbols-outlined text-[15px]">error</span>${escapeHtml(data.error)}
+      </div>
+    </td></tr>`;
     logCount.textContent = '';
     return;
   }
 
-  logPanel.innerHTML = data.log.map(l => {
-    const meta = logLineMeta(l);
-    return `<div class="log-row flex items-start gap-2 px-2 py-1.5 rounded-lg">
-      <span class="material-symbols-outlined text-[15px] ${meta.color} mt-0.5 shrink-0">${meta.icon}</span>
-      <span class="text-[11px] sm:text-xs leading-relaxed ${meta.color}">${escapeHtml(l)}</span>
-    </div>`;
+  logPanel.innerHTML = data.log.map(row => {
+    const meta = statusMeta(row.status);
+    const weightDisplay = (row.weight === null || row.weight === undefined) ? '\u2013' : row.weight;
+    return `<tr class="log-row border-t border-outline-variant/20">
+      <td class="px-3 py-1.5 text-on-surface-variant/70">${row.step}</td>
+      <td class="px-3 py-1.5 text-on-surface font-semibold whitespace-nowrap">${escapeHtml(String(row.edge))}</td>
+      <td class="px-3 py-1.5 text-on-surface-variant">${weightDisplay}</td>
+      <td class="px-3 py-1.5 text-on-surface-variant">${row.g}</td>
+      <td class="px-3 py-1.5 text-on-surface-variant">${row.h}</td>
+      <td class="px-3 py-1.5 text-on-surface-variant">${row.f}</td>
+      <td class="px-3 py-1.5 font-sans ${meta.color} whitespace-nowrap">
+        <span class="inline-flex items-center gap-1.5"><span class="material-symbols-outlined text-[14px]">${meta.icon}</span>${escapeHtml(row.status)}</span>
+      </td>
+    </tr>`;
   }).join('');
   logCount.innerHTML = `<span class="material-symbols-outlined text-[13px]">list</span> ${data.log.length} steps`;
 
   if (canAnimate) {
-    animate('#logPanel .log-row', {
+    animate('#logPanel tr', {
       opacity: [0, 1],
       translateX: [-8, 0],
       duration: 260,

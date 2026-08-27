@@ -18,7 +18,17 @@ def a_star_search(nodes, edges, start, goal):
         path        -> list of node ids from start to goal (or None if no path)
         cost        -> total path cost (sum of edge weights)
         edge_weights-> list of (from_node, to_node, weight) for each edge used in the path
-        log         -> list of human-readable strings describing each expansion step
+        log         -> list of structured trace rows, one per row of the
+                        "A* Search Trace" table:
+                          {
+                            "step":   int,
+                            "edge":   "A" (a node was popped/reached) or
+                                      "A -> B" style label when an edge from A
+                                      to B was relaxed,
+                            "weight": edge weight, or None for a node-only row,
+                            "g": g(n), "h": h(n), "f": f(n) = g(n) + h(n),
+                            "status": human-readable evaluation status,
+                          }
     """
     if start not in nodes or goal not in nodes:
         raise ValueError("Start or goal node does not exist in the graph.")
@@ -37,6 +47,19 @@ def a_star_search(nodes, edges, start, goal):
     log = []
     step = 1
 
+    def add_row(edge, weight, g, h, f, status):
+        nonlocal step
+        log.append({
+            "step": step,
+            "edge": edge,
+            "weight": None if weight is None else round(weight, 1),
+            "g": round(g, 1),
+            "h": round(h, 1),
+            "f": round(f, 1),
+            "status": status,
+        })
+        step += 1
+
     while open_set:
         current_f, current = heapq.heappop(open_set)
 
@@ -44,15 +67,17 @@ def a_star_search(nodes, edges, start, goal):
             continue
         visited.add(current)
 
-        log.append(f"[{step:03d}] Expanding node {current}, f(n)={current_f:.2f}")
-        step += 1
+        h_current = heuristic(nodes, current, goal)
+        add_row(current, None, g_score[current], h_current,
+                g_score[current] + h_current, "Node selected from open set")
 
         if current == goal:
             # Reconstruct path
             path = [current]
-            while current in came_from:
-                current = came_from[current]
-                path.append(current)
+            node = current
+            while node in came_from:
+                node = came_from[node]
+                path.append(node)
             path.reverse()
 
             edge_weights = []
@@ -61,7 +86,7 @@ def a_star_search(nodes, edges, start, goal):
                 w = next(weight for (nb, weight) in edges[a] if nb == b)
                 edge_weights.append((a, b, w))
 
-            log.append(f"[{step:03d}] Goal reached! Total cost: {g_score[goal]:.2f}")
+            add_row(goal, None, g_score[goal], 0.0, g_score[goal], "Goal reached")
 
             return {
                 "path": path,
@@ -70,19 +95,27 @@ def a_star_search(nodes, edges, start, goal):
                 "log": log,
             }
 
-        neighbors = edges.get(current, [])
-        neighbor_names = ", ".join(n for n, _ in neighbors) if neighbors else "none"
-        log.append(f"[{step:03d}] Found neighbors: {neighbor_names}")
-        step += 1
-
-        for neighbor, weight in neighbors:
+        for neighbor, weight in edges.get(current, []):
             tentative_g = g_score[current] + weight
             if tentative_g < g_score[neighbor]:
+                h_neighbor = heuristic(nodes, neighbor, goal)
+                f_neighbor = tentative_g + h_neighbor
+                edge_label = f"{current} \u2192 {neighbor}"
+
+                # A route improvement is reported in two rows: the moment it's
+                # found, then the moment it's committed to g/f-scores and the
+                # open set -- mirroring the two-phase "relax, then push" step.
+                add_row(edge_label, weight, tentative_g, h_neighbor, f_neighbor,
+                        "Better route found")
+
                 came_from[neighbor] = current
                 g_score[neighbor] = tentative_g
-                f_score[neighbor] = tentative_g + heuristic(nodes, neighbor, goal)
-                heapq.heappush(open_set, (f_score[neighbor], neighbor))
+                f_score[neighbor] = f_neighbor
+                heapq.heappush(open_set, (f_neighbor, neighbor))
 
-    # No path found
-    log.append("No path could be found between start and goal.")
+                add_row(edge_label, weight, tentative_g, h_neighbor, f_neighbor,
+                        "Best route updated")
+
+    # No path found (0s here are just placeholders -- inf isn't valid JSON)
+    add_row(None, None, 0.0, 0.0, 0.0, "No path found")
     return {"path": None, "cost": None, "edge_weights": [], "log": log}
