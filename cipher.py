@@ -6,7 +6,7 @@ ALPHABET_SIZE = 26
 def caesar_encrypt_letters(text, key):
     result = []
     for ch in text:
-        if ch.isalpha():
+        if ch in string.ascii_letters:
             base = ord('A') if ch.isupper() else ord('a')
             shifted = (ord(ch) - base + key) % ALPHABET_SIZE
             result.append(chr(base + shifted))
@@ -17,6 +17,12 @@ def caesar_encrypt_letters(text, key):
 
 def caesar_decrypt_letters(text, key):
     return caesar_encrypt_letters(text, -key)
+
+
+def caesar_encrypt_message(text, key):
+    """Match the browser cipher: ASCII letters and digits both shift."""
+    text = caesar_encrypt_letters(text, key)
+    return ''.join(str((int(ch) + key) % 10) if ch in string.digits else ch for ch in text)
 
 
 def caesar_encrypt_number(value, key):

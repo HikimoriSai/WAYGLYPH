@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Wayglyph — Cipher Pathfinder</title>
+<title>Wayglyph — Text Algorithm Studio</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}">
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -141,15 +142,23 @@
   </svg>
   <div class="flex flex-col leading-tight">
     <span class="font-bold text-lg sm:text-2xl tracking-tighter uppercase">Wayglyph</span>
-    <span class="hidden sm:block text-[10px] tracking-widest uppercase text-on-surface-variant font-semibold">A* Pathfinding, Caesar Cipher</span>
+    <span class="hidden sm:block text-[10px] tracking-widest uppercase text-on-surface-variant font-semibold">Text Algorithm Studio</span>
   </div>
+  <nav class="workspace-switch" aria-label="Workspaces">
+    <button type="button" data-workspace="text" aria-pressed="true" data-help="Load text and explore searching, compression, and storage optimization.">Text studio</button>
+    <button type="button" data-workspace="map" aria-pressed="false" data-help="Open your original interactive map, A* pathfinder, and Caesar cipher tools.">Map &amp; cipher</button>
+  </nav>
 </header>
+
+<section id="textLab" hidden aria-label="Text algorithm studio">
+  {% include 'text_workspace.html' %}
+</section>
 
 <!-- Toast stack: replaces native alert() -->
 <div id="toastStack" class="fixed top-4 left-1/2 -translate-x-1/2 z-[70] flex flex-col gap-2 items-center px-3 w-full max-w-sm pointer-events-none"></div>
 
 <!-- In-app confirm modal: replaces native confirm() -->
-<div id="modalBackdrop" class="hidden-modal fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+<div id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalMessage" class="hidden-modal fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
   <div id="modalCard" class="bg-surface-container border border-outline-variant rounded-2xl shadow-2xl w-full max-w-sm p-5">
     <div class="flex items-center gap-3 mb-2">
       <span id="modalIcon" class="material-symbols-outlined text-error bg-error/15 p-1.5 rounded-lg text-[20px]">warning</span>
@@ -163,7 +172,7 @@
   </div>
 </div>
 
-<main class="p-3 sm:p-6 flex flex-col lg:flex-row gap-4 max-w-full overflow-x-hidden items-start">
+<main id="mapWorkspace" hidden class="p-3 sm:p-6 flex flex-col lg:flex-row gap-4 max-w-full overflow-x-hidden items-start">
 
   <!-- Build menu: opens inline, beside the map, pushing content over (no overlay) -->
   <nav id="buildRail" class="bg-surface-container rounded-xl shrink-0 w-full lg:w-auto">
@@ -217,6 +226,11 @@
         <span class="material-symbols-outlined text-[18px]">enhanced_encryption</span> Encryption Lab
       </button>
 
+      <div class="h-px bg-outline-variant/40 my-2"></div>
+      <span class="rail-label mb-0.5">Text Tools</span>
+      <button type="button" data-text-lab-toggle aria-expanded="false" aria-controls="textLab" class="rail-btn hover-lift px-3 py-2.5 rounded-lg bg-primary/10 text-primary text-sm font-bold w-full border border-primary/40">
+        <span class="material-symbols-outlined text-[18px]">text_snippet</span> Search &amp; Compression
+      </button>
       <p id="hint" class="mt-2 pt-3 text-xs text-on-surface-variant italic border-t border-outline-variant/40">Click empty space on the map to add a node.</p>
     </div>
   </nav>
@@ -291,6 +305,7 @@
     </div>
 
     <!-- Encryption Lab: hidden until opened from the build menu -->
+    <p class="text-xs text-on-surface-variant">Caesar cipher is an educational demonstration. Path exports include the key and plaintext; use it only for non-sensitive data.</p>
     <div id="cipherLab" class="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
       <!-- Path Cipher (the encrypted result of the last Find Path run) -->
@@ -423,6 +438,26 @@
 </main>
 
 <script>
+document.querySelectorAll('[data-text-lab-toggle]').forEach(button => {
+  button.addEventListener('click', () => {
+    window.wayglyphWorkspace('text');
+  });
+});
+
+async function graphRequest(url, options) {
+  try {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.error || 'Request failed.');
+    }
+    return response;
+  } catch (error) {
+    showToast(error.message || 'Could not reach the server.', 'error');
+    throw error;
+  }
+}
+
 // Anime.js (v4, UMD global) — used for lightweight entrance/feedback/path-reveal motion.
 // Falls back gracefully to no-ops if the CDN script didn't load, so the app never breaks.
 const { animate, stagger, svg: animeSvg, scrambleText } = window.anime || {};
@@ -431,6 +466,8 @@ const canAnimate = typeof animate === 'function';
 let GRAPH = { nodes: [], edges: [] };
 let mode = 'add';
 let connectFirstNode = null; // holds node id when in connect mode, first click done
+let graphRevision = 0;
+let pathRequest = 0;
 
 const HINTS = {
   add: 'Click empty space on the map to add a node.',
@@ -461,6 +498,7 @@ function playIntroAnimation() {
 /* --- In-app confirm modal: replaces the native browser confirm() dialog --- */
 function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK', danger = true } = {}) {
   return new Promise((resolve) => {
+    const previousFocus = document.activeElement;
     const backdrop = document.getElementById('modalBackdrop');
     const icon = document.getElementById('modalIcon');
     const confirmBtn = document.getElementById('modalConfirmBtn');
@@ -474,6 +512,8 @@ function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK
     confirmBtn.className = `hover-lift px-4 py-2 rounded-lg font-bold text-sm ${danger ? 'bg-error text-on-primary' : 'bg-primary text-on-primary'}`;
 
     backdrop.classList.remove('hidden-modal');
+    window.wayglyphRefreshGuides?.(backdrop);
+    cancelBtn.focus();
 
     function cleanup(result) {
       backdrop.classList.add('hidden-modal');
@@ -481,12 +521,21 @@ function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK
       cancelBtn.removeEventListener('click', onCancel);
       backdrop.removeEventListener('click', onBackdropClick);
       document.removeEventListener('keydown', onKeydown);
+      previousFocus?.focus();
       resolve(result);
     }
     function onConfirm() { cleanup(true); }
     function onCancel() { cleanup(false); }
     function onBackdropClick(e) { if (e.target === backdrop) cleanup(false); }
-    function onKeydown(e) { if (e.key === 'Escape') cleanup(false); if (e.key === 'Enter') cleanup(true); }
+    function onKeydown(e) {
+      if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
+      if (e.key === 'Tab') {
+        const controls = [...backdrop.querySelectorAll('button:not([disabled])')];
+        const first = controls[0], last = controls[controls.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
 
     confirmBtn.addEventListener('click', onConfirm);
     cancelBtn.addEventListener('click', onCancel);
@@ -660,19 +709,25 @@ document.getElementById('decryptBtn').addEventListener('click', () => {
   }
 
   const pathMatch = raw.match(/Origin Path \(encrypted\):\s*(\S+)/i);
+  if (!Number.isInteger(key) || key < 0 || key > 25) {
+    showToast('The exported cipher key must be an integer from 0 to 25.', 'error');
+    return;
+  }
   const out = document.getElementById('decryptOutput');
   let resultText;
 
   if (pathMatch) {
     const decryptedPath = caesarDecryptMessage(pathMatch[1].trim(), key);
-    const edgeLines = [...raw.matchAll(/([A-Z]\d*)\s*->\s*([A-Z]\d*)\s*:\s*([\d.\-]+)/g)];
+    const edgeLines = [...raw.matchAll(/([A-Z][A-Z0-9]{0,15})\s*->\s*([A-Z][A-Z0-9]{0,15})\s*:\s*([\d.\-]+)/g)];
     const decryptedEdges = edgeLines.map(([, a, b, encWeight]) =>
       `  ${a} -> ${b} : ${caesarDecryptMessage(encWeight, key)}`
     );
     resultText = `Decrypted Path: ${decryptedPath.split('->').join(' -> ')}\n\n` +
       `Decrypted Edge Weights:\n${decryptedEdges.join('\n') || '  (none found in this file)'}`;
   } else {
-    resultText = caesarDecryptMessage(raw, key);
+    const message = /^Wayglyph Encrypted Message\r?\n/.test(raw) && keyMatch
+      ? raw.split(/\r?\n\r?\n/).slice(1).join('\n\n') : raw;
+    resultText = caesarDecryptMessage(message, key);
   }
 
   out.textContent = resultText;
@@ -719,8 +774,13 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 });
 
 async function loadGraph(highlightPath) {
-  const res = await fetch('/api/graph');
-  GRAPH = await res.json();
+  const revision = ++graphRevision;
+  resetSidebar();
+  connectFirstNode = null;
+  const res = await graphRequest('/api/graph');
+  const graph = await res.json();
+  if (revision !== graphRevision) return;
+  GRAPH = graph;
   refreshNodeSelects();
   updateMapBadge();
   drawGraph(highlightPath, true); // true = play the node/edge entrance animation
@@ -738,8 +798,8 @@ function refreshNodeSelects() {
   startSel.innerHTML = '';
   goalSel.innerHTML = '';
   GRAPH.nodes.forEach(n => {
-    startSel.innerHTML += `<option value="${n.id}">${n.id}</option>`;
-    goalSel.innerHTML += `<option value="${n.id}">${n.id}</option>`;
+    startSel.innerHTML += `<option value="${escapeHtml(n.id)}">${escapeHtml(n.id)}</option>`;
+    goalSel.innerHTML += `<option value="${escapeHtml(n.id)}">${escapeHtml(n.id)}</option>`;
   });
   if (GRAPH.nodes.some(n => n.id === prevStart)) startSel.value = prevStart;
   if (GRAPH.nodes.some(n => n.id === prevGoal)) goalSel.value = prevGoal;
@@ -770,7 +830,7 @@ function drawGraph(highlightPath, animateEntrance) {
     const a = nodeMap[e.from], b = nodeMap[e.to];
     if (!a || !b) return;
     const active = pathSet.has(e.from + '-' + e.to);
-    svg.innerHTML += `<line class="edge-line" data-from="${e.from}" data-to="${e.to}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+    svg.innerHTML += `<line class="edge-line" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
       stroke="${active ? '#5bd5fc' : '#3d484d'}" stroke-width="${active ? 3 : 2}" />`;
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     svg.innerHTML += `<g class="edge-label">
@@ -787,8 +847,8 @@ function drawGraph(highlightPath, animateEntrance) {
     if (isStart) fill = '#4cc9f0';
     else if (isGoal) fill = '#f72585';
     else if (isSelected) fill = '#e0b6ff';
-    svg.innerHTML += `<circle class="node-circle" data-id="${n.id}" cx="${n.x}" cy="${n.y}" r="16" fill="${fill}" stroke="#e5e2e1" stroke-width="2"/>
-      <text style="pointer-events:none" x="${n.x}" y="${n.y + 4}" fill="#e5e2e1" font-size="13" text-anchor="middle" font-weight="600" font-family="Quicksand">${n.id}</text>`;
+    svg.innerHTML += `<circle class="node-circle" data-id="${escapeHtml(n.id)}" cx="${n.x}" cy="${n.y}" r="16" fill="${fill}" stroke="#e5e2e1" stroke-width="2"/>
+      <text style="pointer-events:none" x="${n.x}" y="${n.y + 4}" fill="#e5e2e1" font-size="13" text-anchor="middle" font-weight="600" font-family="Quicksand">${escapeHtml(n.id)}</text>`;
   });
 
   // Attach click handlers to nodes
@@ -875,7 +935,7 @@ function svgCoords(evt) {
 document.getElementById('graphSvg').addEventListener('click', async (evt) => {
   if (mode !== 'add') return; // clicks on nodes are handled separately and stop propagation
   const { x, y } = svgCoords(evt);
-  const res = await fetch('/api/nodes', {
+  const res = await graphRequest('/api/nodes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ x, y })
@@ -894,7 +954,7 @@ async function handleNodeClick(nodeId) {
       danger: true,
     });
     if (!ok) return;
-    await fetch(`/api/nodes/${nodeId}`, { method: 'DELETE' });
+    await graphRequest(`/api/nodes/${nodeId}`, { method: 'DELETE' });
     await loadGraph();
     return;
   }
@@ -912,7 +972,7 @@ async function handleNodeClick(nodeId) {
       return;
     }
     const secondNode = nodeId;
-    const res = await fetch('/api/edges', {
+    const res = await graphRequest('/api/edges', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: connectFirstNode, to: secondNode })
@@ -933,7 +993,7 @@ document.getElementById('resetEmptyBtn').addEventListener('click', async () => {
     danger: true,
   });
   if (!ok) return;
-  await fetch('/api/graph/reset', {
+  await graphRequest('/api/graph/reset', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ seed: false })
   });
@@ -942,7 +1002,7 @@ document.getElementById('resetEmptyBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('resetSampleBtn').addEventListener('click', async () => {
-  await fetch('/api/graph/reset', {
+  await graphRequest('/api/graph/reset', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ seed: true })
   });
@@ -961,7 +1021,7 @@ document.getElementById('loadGraphInput').addEventListener('change', async (evt)
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await fetch('/api/graph/load', { method: 'POST', body: formData });
+  const res = await graphRequest('/api/graph/load', { method: 'POST', body: formData });
   const data = await res.json();
   if (data.error) { showToast(data.error, 'error'); }
   await loadGraph();
@@ -978,6 +1038,8 @@ function resetSidebar() {
   document.getElementById('exportStats').innerHTML = '';
   document.getElementById('exportBtn').disabled = true;
   document.getElementById('copyBtn').disabled = true;
+  document.getElementById('copyBtn').dataset.payload = '';
+  document.getElementById('exportBtn').dataset.payload = '';
 }
 
 document.getElementById('cipherKey').addEventListener('input', (e) => {
@@ -995,19 +1057,23 @@ function statusMeta(status) {
 }
 
 function escapeHtml(str) {
-  return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 document.getElementById('executeBtn').addEventListener('click', async () => {
+  const revision = graphRevision;
+  const sequence = ++pathRequest;
   const start = document.getElementById('startSelect').value;
   const goal = document.getElementById('goalSelect').value;
   const cipher_key = parseInt(document.getElementById('cipherKey').value, 10);
 
   if (!start || !goal) { showToast('Add nodes and pick a start/goal first.', 'error'); return; }
 
+  resetSidebar();
+  drawGraph();
   if (canAnimate) animate('#executeBtn', { scale: [1, 0.93, 1], duration: 260, ease: 'outQuad' });
 
-  const res = await fetch('/api/pathfind', {
+  const res = await graphRequest('/api/pathfind', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({start, goal, cipher_key})
@@ -1015,6 +1081,7 @@ document.getElementById('executeBtn').addEventListener('click', async () => {
   const data = await res.json();
 
   const logPanel = document.getElementById('logPanel');
+  if (revision !== graphRevision || sequence !== pathRequest) return;
   const logCount = document.getElementById('logCount');
   if (data.error) {
     logPanel.innerHTML = `<tr><td colspan="7" class="px-3 py-3">
@@ -1078,7 +1145,7 @@ document.getElementById('executeBtn').addEventListener('click', async () => {
   const tbody = document.getElementById('edgeWeightTableBody');
   tbody.innerHTML = data.encrypted_edges.map(e => `
     <tr class="border-t border-outline-variant/20">
-      <td class="py-1 pr-2 text-on-surface-variant">${e.from} &rarr; ${e.to}</td>
+      <td class="py-1 pr-2 text-on-surface-variant">${escapeHtml(e.from)} &rarr; ${escapeHtml(e.to)}</td>
       <td class="py-1 pr-2 text-on-surface">${e.plain_weight}</td>
       <td class="py-1 text-secondary">${e.encrypted_weight}</td>
     </tr>
@@ -1093,7 +1160,7 @@ document.getElementById('executeBtn').addEventListener('click', async () => {
   // encrypted_path.txt (and what the Decryptor's parser looks for), so
   // Copy -> paste into the Decryptor always decodes correctly.
   const edgeExportLines = data.encrypted_edges
-    .map(e => `  ${e.from} -> ${e.to} : ${e.encrypted_weight}  (plain: ${e.plain_weight})`)
+    .map(e => `  ${escapeHtml(e.from)} -> ${escapeHtml(e.to)} : ${e.encrypted_weight}  (plain: ${e.plain_weight})`)
     .join('\n');
   const finalText =
 `GraphCrypt Encrypted Export
@@ -1111,6 +1178,7 @@ ${edgeExportLines}`;
   exportBtn.disabled = false;
   copyBtn.disabled = false;
   copyBtn.dataset.payload = finalText;
+  exportBtn.dataset.payload = finalText;
   if (canAnimate) {
     animate([exportBtn, copyBtn], { scale: [0.9, 1], opacity: [0.5, 1], duration: 420, ease: 'outElastic(1, .6)' });
     animate('#exportStats .chip', { opacity: [0, 1], scale: [0.7, 1], duration: 380, delay: stagger(60), ease: 'outBack(1.5)' });
@@ -1118,7 +1186,8 @@ ${edgeExportLines}`;
 });
 
 document.getElementById('exportBtn').addEventListener('click', () => {
-  window.location.href = '/api/download';
+  const payload = document.getElementById('exportBtn').dataset.payload;
+  if (payload) downloadTextFile('encrypted_path.txt', payload);
 });
 
 document.getElementById('copyBtn').addEventListener('click', async (evt) => {

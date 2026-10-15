@@ -5,8 +5,7 @@ from geometry import distance_between_nodes
 
 def heuristic(nodes, a, b):
     """Straight-line (Euclidean) distance heuristic between two nodes.
-    Uses the exact same formula as the auto-computed edge weights, which is
-    what keeps this heuristic admissible by construction (see module docstring)."""
+    The search scales this distance to account for rounded/imported weights."""
     return distance_between_nodes(nodes, a, b)
 
 
@@ -33,15 +32,31 @@ def a_star_search(nodes, edges, start, goal):
     if start not in nodes or goal not in nodes:
         raise ValueError("Start or goal node does not exist in the graph.")
 
+    # Imported weights and rounded map distances can be below Euclidean distance.
+    # Scale the heuristic by the smallest edge/distance ratio to keep it consistent.
+    scale = 1.0
+    for a, neighbors in edges.items():
+        if a not in nodes:
+            raise ValueError('Edge references an unknown node.')
+        for b, weight in neighbors:
+            if b not in nodes or not math.isfinite(weight) or weight < 0:
+                raise ValueError('Edges require known nodes and finite nonnegative weights.')
+            distance = heuristic(nodes, a, b)
+            if distance:
+                scale = min(scale, weight / distance)
+
+    def estimate(a):
+        return scale * heuristic(nodes, a, goal)
+
     open_set = []
-    heapq.heappush(open_set, (0, start))
+    heapq.heappush(open_set, (estimate(start), start))
 
     came_from = {}
     g_score = {n: math.inf for n in nodes}
     g_score[start] = 0
 
     f_score = {n: math.inf for n in nodes}
-    f_score[start] = heuristic(nodes, start, goal)
+    f_score[start] = estimate(start)
 
     visited = set()
     log = []
@@ -67,7 +82,7 @@ def a_star_search(nodes, edges, start, goal):
             continue
         visited.add(current)
 
-        h_current = heuristic(nodes, current, goal)
+        h_current = estimate(current)
         add_row(current, None, g_score[current], h_current,
                 g_score[current] + h_current, "Node selected from open set")
 
@@ -98,7 +113,7 @@ def a_star_search(nodes, edges, start, goal):
         for neighbor, weight in edges.get(current, []):
             tentative_g = g_score[current] + weight
             if tentative_g < g_score[neighbor]:
-                h_neighbor = heuristic(nodes, neighbor, goal)
+                h_neighbor = estimate(neighbor)
                 f_neighbor = tentative_g + h_neighbor
                 edge_label = f"{current} \u2192 {neighbor}"
 

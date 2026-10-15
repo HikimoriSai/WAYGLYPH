@@ -1,4 +1,17 @@
-# GraphCrypt — A* + Caesar Cipher
+# Wayglyph — Text Search, Compression & Optimization
+
+The original map and cipher UI remains the default page. Its **Text Lab** button
+opens integrated KMP text search, Huffman and RLE compression, parallel file
+search, and exact 0/1 knapsack storage optimization in the existing design.
+See [TEXT_WORKSPACE.md](TEXT_WORKSPACE.md) for setup, a demonstration guide,
+requirement mapping, complexity analysis, and verification instructions.
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the validation findings, fixes,
+test commands, and remaining deployment limitations.
+
+`/pathfinder` also opens the integrated application.
+Its original documentation follows.
+
+## GraphCrypt — A* + Caesar Cipher
 
 Python (Flask) backend + HTML/JS frontend that:
 1. Runs A* on a weighted graph to find the shortest path (start -> goal).
@@ -58,19 +71,13 @@ is running. Use the **Map Mode** buttons above the map:
   in by hand.
 
 ### Why edge weights are auto-computed, not manual
-This is what keeps A* correct. A* uses `f(n) = g(n) + h(n)`, where `h(n)` is
-a straight-line-distance *estimate* of the remaining cost to the goal. For
-A* to guarantee it finds the true shortest path, `h(n)` must never
-*overestimate* the real remaining cost (called an **admissible** heuristic).
-If edge weights were arbitrary numbers unrelated to on-screen distance, a
-"shortcut" edge with an artificially low weight between two far-apart nodes
-could break that guarantee — A* could actually skip over the real shortest
-path. By making every edge weight *equal to* the straight-line distance
-between its two endpoints, this can never happen: a straight line is never
-longer than any path between two points (triangle inequality), so `h(n)` is
-always admissible, for any graph you build. Both `astar.py`'s heuristic and
-`app.py`'s edge-weight calculation call the same `geometry.py` function, so
-they can never drift out of sync.
+Map edge weights are rounded Euclidean distances. Imported graph files may
+also contain other nonnegative weights. A* uses `f(n) = g(n) + h(n)`, with
+`h(n) = scale × EuclideanDistance(n, goal)`. The scale is the minimum of 1
+and every positive-distance edge's weight/distance ratio. This makes the
+heuristic consistent even for rounded or imported weights. If the scale is
+zero, the search behaves like Dijkstra's algorithm. Negative and non-finite
+weights are rejected.
 
 ### Saving / loading the graph as .txt
 The graph auto-saves to **`data/graph.txt`** every time you add/delete a node
