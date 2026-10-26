@@ -365,5 +365,5 @@
   studio.querySelectorAll('.algorithm-pill,.count-pill').forEach(node => { if (!node.dataset.help) node.dataset.help = node.classList.contains('count-pill') ? 'Number of documents currently loaded.' : `This section uses ${node.textContent.toLowerCase()}.`; });
   document.querySelectorAll('button:not([type])').forEach(node => { node.type = 'button'; });
   renderDataset(); renderPerformance(); updateControls(); decorate();
-  window.wayglyphWorkspace(location.pathname === '/pathfinder' ? 'map' : 'text');
+  window.wayglyphWorkspace('map');
 })();

@@ -1,0 +1,96 @@
+/* The startup sequence uses the same vector artwork as the header logo. */
+.startup-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  place-items: center;
+  overflow: hidden;
+  background: #131313;
+  color: #e5e2e1;
+  font-family: "Quicksand", sans-serif;
+  transition: opacity 650ms cubic-bezier(.22, 1, .36, 1);
+}
+.is-booting .startup-splash { display: grid !important; }
+.is-booting { overflow: hidden; }
+.is-booting #appShell { pointer-events: none; }
+.startup-splash::before {
+  content: "";
+  position: absolute;
+  width: min(740px, 140vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 35% 42%, #93e2ff0d, transparent 50%),
+    radial-gradient(ellipse at 70% 58%, #e0b6ff0c, transparent 50%);
+  animation: startup-glow 2400ms ease both;
+}
+.startup-content { position: relative; padding: 24px; }
+.startup-brand { display: flex; align-items: center; gap: 22px; }
+.startup-mark { flex-shrink: 0; width: 84px; height: 84px; overflow: visible; }
+.startup-mark polygon {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: startup-draw 1000ms cubic-bezier(.65, 0, .35, 1) 100ms both;
+}
+.startup-mark path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: startup-draw 650ms ease 650ms both;
+}
+.startup-mark g { animation: startup-reveal 700ms ease 500ms both; }
+.startup-mark circle { transform-box: fill-box; transform-origin: center; animation: startup-node 550ms cubic-bezier(.22, 1, .36, 1) both; }
+.startup-mark circle:nth-of-type(1) { animation-delay: 850ms; }
+.startup-mark circle:nth-of-type(2) { animation-delay: 1000ms; }
+.startup-mark circle:nth-of-type(3) { animation-delay: 1150ms; }
+.startup-wordmark {
+  margin: 0;
+  font-size: clamp(30px, 6.7vw, 48px);
+  font-weight: 700;
+  letter-spacing: -.055em;
+  line-height: 1.15;
+  animation: startup-wordmark 950ms cubic-bezier(.22, 1, .36, 1) 350ms both;
+}
+.startup-tagline {
+  margin: 7px 0 0;
+  color: #bcc8ce;
+  font-size: clamp(8px, 1.8vw, 11px);
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  animation: startup-wordmark 850ms cubic-bezier(.22, 1, .36, 1) 650ms both;
+}
+.startup-loading { margin: 36px auto 0; width: 160px; animation: startup-reveal 650ms ease 900ms both; }
+.startup-track { height: 2px; overflow: hidden; background: #ffffff12; border-radius: 2px; }
+.startup-track::after {
+  content: "";
+  display: block;
+  width: 48%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #93e2ff, #e0b6ff, #f72585);
+  animation: startup-loading 1400ms ease-in-out infinite;
+}
+.startup-status { margin: 13px -45px 0; text-align: center; color: #879398; font-size: 11px; letter-spacing: .04em; }
+.startup-splash.is-leaving { opacity: 0; pointer-events: none; }
+.startup-splash.is-leaving .startup-content { animation: startup-depart 650ms cubic-bezier(.22, 1, .36, 1) both; }
+.app-entering { animation: startup-arrive 800ms cubic-bezier(.22, 1, .36, 1) both; }
+@keyframes startup-draw { to { stroke-dashoffset: 0; } }
+@keyframes startup-node { from { opacity: 0; transform: scale(.35); } to { opacity: 1; transform: scale(1); } }
+@keyframes startup-wordmark { from { opacity: 0; transform: translateY(10px); filter: blur(5px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+@keyframes startup-reveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes startup-glow { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+@keyframes startup-loading { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+@keyframes startup-depart { to { opacity: 0; transform: translateY(-12px) scale(.97); filter: blur(3px); } }
+@keyframes startup-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 480px) {
+  .startup-brand { gap: 14px; }
+  .startup-mark { width: 60px; height: 60px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .startup-splash, .startup-splash *, .startup-splash::before, .startup-track::after, .app-entering {
+    animation: none !important;
+    transition: none !important;
+  }
+  .startup-mark polygon, .startup-mark path { stroke-dashoffset: 0; }
+  .startup-track::after { width: 100%; }
+}
