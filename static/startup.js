@@ -4,8 +4,10 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let finished = false;
   let watchdog;
+  // Return a timer promise used to pace the startup screen.
   const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
+  // Remove the splash screen and unlock the main page once startup finishes.
   function finish() {
     if (finished) return;
     finished = true;
@@ -29,6 +31,7 @@
     }, reducedMotion.matches ? 0 : 650);
   }
 
+  // Wait for the graph request and splash timer, then reveal the main page.
   document.addEventListener('DOMContentLoaded', async () => {
     if (finished) return;
     watchdog = setTimeout(finish, 6000);

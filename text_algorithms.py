@@ -8,11 +8,13 @@ import zlib
 
 
 def _seal(data):
+    """Add a version tag and CRC32 checksum to compressed bytes returned for download."""
     versioned = data[:3] + b'2' + data[4:]
     return versioned + struct.pack('>I', zlib.crc32(versioned))
 
 
 def _unseal(data, magic):
+    """Check compressed bytes and return the payload format expected by the decoders."""
     if data[:4] == magic[:3] + b'2':
         if len(data) < 8 or zlib.crc32(data[:-4]) != struct.unpack('>I', data[-4:])[0]:
             raise ValueError('Compressed file checksum failed. The file is damaged.')
@@ -21,6 +23,7 @@ def _unseal(data, magic):
 
 
 def kmp_search(text, pattern):
+    """Return all matching character positions for document search results."""
     if not pattern:
         raise ValueError("Enter a non-empty search pattern.")
     lps = [0] * len(pattern)
@@ -44,6 +47,7 @@ def kmp_search(text, pattern):
 
 
 def _tree(frequencies):
+    """Build a byte-frequency tree used by Huffman encoding and decoding."""
     heap = [(count, symbol, symbol) for symbol, count in frequencies.items()]
     heapq.heapify(heap)
     serial = 256
@@ -56,11 +60,13 @@ def _tree(frequencies):
 
 
 def huffman_compress(data):
+    """Encode input bytes as a Huffman file with a header and checksum."""
     frequencies = Counter(data)
     root = _tree(frequencies)
     codes = {}
 
     def visit(node, prefix):
+        """Fill the Huffman code table by walking the tree with binary prefixes."""
         if isinstance(node, int):
             codes[node] = prefix or '0'
         elif node is not None:
@@ -86,6 +92,7 @@ def huffman_compress(data):
 
 
 def huffman_decompress(data):
+    """Validate a Huffman file and return its original bytes for the text API."""
     data = _unseal(data, b'WGH1')
     if len(data) < 6 or data[:4] != b'WGH1':
         raise ValueError('Invalid Huffman file.')
@@ -126,6 +133,7 @@ def huffman_decompress(data):
 
 
 def rle_compress(data):
+    """Encode repeated bytes as count-value pairs with a header and checksum."""
     result = bytearray(b'WGR1')
     i = 0
     while i < len(data):
@@ -138,6 +146,7 @@ def rle_compress(data):
 
 
 def rle_decompress(data):
+    """Validate an RLE file and return its original bytes for the text API."""
     data = _unseal(data, b'WGR1')
     if data[:4] != b'WGR1' or (len(data) - 4) % 2:
         raise ValueError('Invalid RLE file.')
@@ -150,6 +159,7 @@ def rle_decompress(data):
 
 
 def compress_text(text, method):
+    """Encode UTF-8 text and return compressed bytes plus statistics to the text API."""
     data = text.encode('utf-8')
     if method not in ('huffman', 'rle'):
         raise ValueError('Choose huffman or rle.')
@@ -164,6 +174,7 @@ def compress_text(text, method):
 
 
 def search_document(job):
+    """Search one (name, text, pattern) job and return positions, count, and timing."""
     name, text, pattern = job
     start = time.perf_counter()
     positions = kmp_search(text, pattern)
@@ -172,6 +183,7 @@ def search_document(job):
 
 
 def parallel_search(documents, pattern):
+    """Send document jobs to up to four processes and return combined search results."""
     if not pattern:
         raise ValueError('Enter a non-empty search pattern.')
     start = time.perf_counter()
@@ -186,7 +198,7 @@ def parallel_search(documents, pattern):
 
 
 def optimize_storage(items, capacity):
-    """Exact 0/1 knapsack; bytes are costs, user priorities are values."""
+    """Use 0/1 knapsack to return file indices with maximum priority within a byte budget."""
     if not isinstance(capacity, int) or isinstance(capacity, bool) or not 0 <= capacity <= 100_000:
         raise ValueError('Storage budget must be an integer from 0 to 100,000 bytes.')
     if len(items) > 30:

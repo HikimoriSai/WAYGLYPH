@@ -4,31 +4,12 @@ from geometry import distance_between_nodes
 
 
 def heuristic(nodes, a, b):
-    """Straight-line (Euclidean) distance heuristic between two nodes.
-    The search scales this distance to account for rounded/imported weights."""
+    """Return node distance for the scaled A* cost estimate."""
     return distance_between_nodes(nodes, a, b)
 
 
 def a_star_search(nodes, edges, start, goal):
-    """
-    Runs A* search.
-
-    Returns a dict with:
-        path        -> list of node ids from start to goal (or None if no path)
-        cost        -> total path cost (sum of edge weights)
-        edge_weights-> list of (from_node, to_node, weight) for each edge used in the path
-        log         -> list of structured trace rows, one per row of the
-                        "A* Search Trace" table:
-                          {
-                            "step":   int,
-                            "edge":   "A" (a node was popped/reached) or
-                                      "A -> B" style label when an edge from A
-                                      to B was relaxed,
-                            "weight": edge weight, or None for a node-only row,
-                            "g": g(n), "h": h(n), "f": f(n) = g(n) + h(n),
-                            "status": human-readable evaluation status,
-                          }
-    """
+    """Return the shortest path, cost, edge weights, and trace to app.pathfind."""
     if start not in nodes or goal not in nodes:
         raise ValueError("Start or goal node does not exist in the graph.")
 
@@ -46,6 +27,7 @@ def a_star_search(nodes, edges, start, goal):
                 scale = min(scale, weight / distance)
 
     def estimate(a):
+        """Return a scaled remaining-cost estimate for the A* priority queue."""
         return scale * heuristic(nodes, a, goal)
 
     open_set = []
@@ -63,6 +45,7 @@ def a_star_search(nodes, edges, start, goal):
     step = 1
 
     def add_row(edge, weight, g, h, f, status):
+        """Append one search step to the log returned for the browser trace table."""
         nonlocal step
         log.append({
             "step": step,

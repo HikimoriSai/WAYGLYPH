@@ -7,6 +7,7 @@ MAX_EDGES = 10000
 
 
 def node_id(value):
+    """Normalize and validate node labels from graph uploads and API requests."""
     if not isinstance(value, str):
         raise ValueError('Node ID must be text.')
     value = value.strip().upper()
@@ -16,6 +17,7 @@ def node_id(value):
 
 
 def coordinate(value):
+    """Return a validated numeric coordinate for graph nodes."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError('Coordinates must be finite numbers.')
     if not math.isfinite(value) or abs(value) > 1_000_000:
@@ -24,12 +26,14 @@ def coordinate(value):
 
 
 def weight(value):
+    """Validate edge costs before uploaded graph data enters memory."""
     if not math.isfinite(value) or not 0 <= value <= 10_000_000:
         raise ValueError('Edge weights must be finite numbers from 0 to 10,000,000.')
     return value
 
 
 def cipher_key(value):
+    """Validate the browser cipher key before path results are encrypted."""
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 25:
         raise ValueError('Cipher key must be an integer from 0 to 25.')
     return value

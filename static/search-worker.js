@@ -1,4 +1,5 @@
 /* Plain browser Brute Force: kept off the UI thread so typing stays responsive. */
+// Receive documents and a pattern from workspace.js; send match results or errors back.
 self.onmessage = ({data}) => {
   try {
     const pattern = Array.from(data.pattern);

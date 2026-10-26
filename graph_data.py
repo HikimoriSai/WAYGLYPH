@@ -51,6 +51,7 @@ _CONNECTIONS = [
 
 
 def build_edges():
+    """Turn sample connections into weighted two-way edges for app.py startup and reset."""
     edges = {node: [] for node in NODES}
 
     for a, b in _CONNECTIONS:

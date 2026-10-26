@@ -8,7 +8,7 @@ GRAPH_FILE = os.path.join(DATA_DIR, "graph.txt")
 
 
 def serialize_graph(nodes, edges):
-    """nodes: {id: (x, y)}  edges: {id: [(neighbor, weight), ...]}  -> txt string"""
+    """Convert nodes and edges to text for graph saving and downloads."""
     lines = ["# GraphCrypt Graph File", "# Format: NODE,id,x,y  /  EDGE,from,to,weight"]
 
     for node_id, (x, y) in nodes.items():
@@ -26,7 +26,7 @@ def serialize_graph(nodes, edges):
 
 
 def parse_graph(text):
-    """txt string -> (nodes, edges) in the same shape used by GRAPH_STATE"""
+    """Validate graph text and return nodes and edges for loading into GRAPH_STATE."""
     nodes = {}
     edges = {}
     pending_edges = []
@@ -69,6 +69,7 @@ def parse_graph(text):
 
 
 def save_graph_to_disk(nodes, edges, path=GRAPH_FILE):
+    """Write serialized graph data atomically to data/graph.txt or the supplied path."""
     # Replace only after a complete write, so interruptions cannot truncate the graph.
     temporary = None
     try:
@@ -85,7 +86,7 @@ def save_graph_to_disk(nodes, edges, path=GRAPH_FILE):
 
 
 def load_graph_from_disk(path=GRAPH_FILE):
-    """Returns (nodes, edges) or (None, None) if the file doesn't exist yet."""
+    """Read saved graph text into nodes and edges; return (None, None) if missing."""
     if not os.path.exists(path):
         return None, None
     with open(path, "r", encoding="utf-8") as f:

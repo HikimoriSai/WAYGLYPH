@@ -30,6 +30,7 @@ TEXT_SLOTS = BoundedSemaphore(2)
 
 @app.before_request
 def guard_requests():
+    """Check local requests and reserve graph locks or text workers before API processing."""
     # This project is a local single-user lab. Reject DNS rebinding and browser
     # requests from other origins, including cross-site multipart form uploads.
     if urlsplit(request.host_url).hostname not in ('localhost', '127.0.0.1', '::1'):
@@ -51,6 +52,7 @@ def guard_requests():
 
 @app.teardown_request
 def release_locks(error):
+    """Release the graph lock or text worker slot when a request finishes."""
     if g.pop('text_slot', False):
         TEXT_SLOTS.release()
     if g.pop('graph_lock', False):
@@ -59,6 +61,7 @@ def release_locks(error):
 
 @app.errorhandler(HTTPException)
 def http_error(error):
+    """Return HTTP errors to the browser as JSON."""
     return jsonify(error=error.description), error.code
 
 
@@ -66,11 +69,13 @@ def http_error(error):
 @app.errorhandler(TypeError)
 @app.errorhandler(OverflowError)
 def invalid_input(error):
+    """Return invalid input errors to the browser as JSON with status 400."""
     return jsonify(error=str(error)), 400
 
 
 @app.after_request
 def response_headers(response):
+    """Add security and cache headers to responses sent to the browser."""
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'no-referrer'
@@ -80,6 +85,7 @@ def response_headers(response):
 
 
 def _json():
+    """Read a JSON object from the browser for graph API handlers."""
     data = request.get_json()
     if not isinstance(data, dict):
         raise ValueError('Send a JSON object.')
@@ -91,8 +97,7 @@ EXPORT_FILENAME = "encrypted_path.txt"
 
 
 def _fresh_state(seed=True):
-    """Build a fresh in-memory graph state. seed=True loads the sample graph;
-    seed=False starts from a totally empty canvas."""
+    """Return a sample or empty graph for the in-memory GRAPH_STATE."""
     if seed:
         return {
             "nodes": copy.deepcopy(SAMPLE_NODES),   # {id: (x, y)}
@@ -102,7 +107,7 @@ def _fresh_state(seed=True):
 
 
 def _persist():
-    """Auto-save the current in-memory graph to data/graph.txt."""
+    """Save GRAPH_STATE to data/graph.txt; restore the snapshot if saving fails."""
     global GRAPH_STATE
     try:
         save_graph_to_disk(GRAPH_STATE["nodes"], GRAPH_STATE["edges"])
@@ -114,7 +119,7 @@ def _persist():
 
 
 def _load_initial_state():
-    """On startup: use the saved graph.txt if it exists, else seed the sample graph."""
+    """Load data/graph.txt into memory, or return the sample graph on startup."""
     nodes, edges = load_graph_from_disk()
     if nodes is not None:
         return {"nodes": nodes, "edges": edges}
@@ -128,7 +133,7 @@ GRAPH_STATE = _load_initial_state()
 
 
 def _next_node_id():
-    """Auto-generate the next free node id: A, B, C, ... Z, A1, B1, ..."""
+    """Return the next unused node label for add_node."""
     used = set(GRAPH_STATE["nodes"].keys())
     for letter in string.ascii_uppercase:
         if letter not in used:
@@ -144,15 +149,18 @@ def _next_node_id():
 
 @app.route("/")
 def index():
+    """Render templates/index.html and return the main page to the browser."""
     return render_template("index.html")
 
 
 @app.route('/pathfinder')
 def pathfinder_page():
+    """Serve the main page to the browser through /pathfinder."""
     return render_template('index.html')
 
 
 def _documents(data):
+    """Validate document names, text, and size before passing them to text algorithms."""
     documents = data.get('documents')
     if not isinstance(documents, list) or not 1 <= len(documents) <= 30:
         raise ValueError('Provide 1 to 30 documents.')
@@ -168,6 +176,7 @@ def _documents(data):
 
 @app.route('/api/text/<action>', methods=['POST'])
 def text_action(action):
+    """Send posted text to search, compression, or optimization; return JSON without saving files."""
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error='Send a JSON object.'), 400
@@ -219,7 +228,7 @@ def text_action(action):
 
 @app.route("/api/graph", methods=["GET"])
 def get_graph():
-    """Returns the current plaintext graph so the frontend can draw it."""
+    """Return GRAPH_STATE as JSON nodes and edges for the browser map."""
     edge_list = []
     seen = set()
     for node, neighbors in GRAPH_STATE["edges"].items():
@@ -235,7 +244,7 @@ def get_graph():
 
 @app.route("/api/graph/reset", methods=["POST"])
 def reset_graph():
-    """Body: {"seed": true|false} -> true loads the sample A-F graph, false clears it."""
+    """Replace GRAPH_STATE, save data/graph.txt, and return the new graph to the browser."""
     data = _json()
     seed = data.get("seed", False)
     if not isinstance(seed, bool):
@@ -248,7 +257,7 @@ def reset_graph():
 
 @app.route("/api/nodes", methods=["POST"])
 def add_node():
-    """Body: {"x": float, "y": float, "id": optional str}"""
+    """Add browser coordinates to GRAPH_STATE, save data/graph.txt, and return the node."""
     data = _json()
     x = data.get("x")
     y = data.get("y")
@@ -270,6 +279,7 @@ def add_node():
 
 @app.route("/api/nodes/<node_id>", methods=["DELETE"])
 def delete_node(node_id):
+    """Remove a node and its edges, save data/graph.txt, and confirm deletion as JSON."""
     node_id = validate_node_id(node_id)
     if node_id not in GRAPH_STATE["nodes"]:
         return jsonify({"error": f"Node '{node_id}' not found"}), 404
@@ -284,14 +294,7 @@ def delete_node(node_id):
 
 @app.route("/api/edges", methods=["POST"])
 def add_edge():
-    """
-    Body: {"from": "A", "to": "B"}
-
-    The edge weight is NOT provided manually. It is computed automatically
-    from the Euclidean (straight-line) distance between the two nodes'
-    (x, y) map coordinates. A* scales its Euclidean heuristic to remain
-    consistent with these rounded distances and with imported weights.
-    """
+    """Connect two nodes using their distance, save data/graph.txt, and return the edge."""
     data = _json()
     a = validate_node_id(data.get('from'))
     b = validate_node_id(data.get('to'))
@@ -322,7 +325,7 @@ def add_edge():
 
 @app.route("/api/edges", methods=["DELETE"])
 def delete_edge():
-    """Body: {"from": "A", "to": "B"}"""
+    """Remove a connection, save data/graph.txt, and confirm deletion as JSON."""
     data = _json()
     a = validate_node_id(data.get('from'))
     b = validate_node_id(data.get('to'))
@@ -338,8 +341,7 @@ def delete_edge():
 
 @app.route("/api/graph/save", methods=["GET"])
 def save_graph_file():
-    """Downloads the current graph as a plain .txt file (nodes + edges),
-    so it can be reloaded later or shared/submitted alongside the export."""
+    """Save data/graph.txt and send it to the browser as graphcrypt_graph.txt."""
     _persist()  # make sure the file on disk matches the current in-memory state
     directory, filename = os.path.split(GRAPH_FILE)
     return send_from_directory(directory, filename, as_attachment=True,
@@ -348,8 +350,7 @@ def save_graph_file():
 
 @app.route("/api/graph/load", methods=["POST"])
 def load_graph_file():
-    """Body: multipart/form-data with a 'file' field containing a graph .txt
-    (same format produced by /api/graph/save). Replaces the current graph."""
+    """Parse an uploaded graph into GRAPH_STATE, save data/graph.txt, and return JSON."""
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
@@ -371,6 +372,7 @@ def load_graph_file():
 
 @app.route("/api/pathfind", methods=["POST"])
 def pathfind():
+    """Run A*, encrypt results, write outputs/encrypted_path.txt, and return browser JSON."""
     data = _json()
     start = validate_node_id(data.get('start'))
     goal = validate_node_id(data.get('goal'))
@@ -433,6 +435,7 @@ def pathfind():
 
 @app.route("/api/download", methods=["GET"])
 def download():
+    """Send outputs/encrypted_path.txt to the browser as a file download."""
     return send_from_directory(OUTPUT_DIR, EXPORT_FILENAME, as_attachment=True)
 
 

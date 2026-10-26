@@ -445,6 +445,7 @@ document.querySelectorAll('[data-text-lab-toggle]').forEach(button => {
   });
 });
 
+// Send a graph API request to Flask and show server or network errors as a toast.
 async function graphRequest(url, options) {
   try {
     const response = await fetch(url, options);
@@ -483,6 +484,7 @@ const MODE_META = {
 };
 
 /* --- In-app confirm modal: replaces the native browser confirm() dialog --- */
+// Open a confirmation dialog and return the user choice as a boolean promise.
 function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK', danger = true } = {}) {
   return new Promise((resolve) => {
     const previousFocus = document.activeElement;
@@ -502,6 +504,7 @@ function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK
     window.wayglyphRefreshGuides?.(backdrop);
     cancelBtn.focus();
 
+    // Close the dialog, detach handlers, and resolve the pending user choice.
     function cleanup(result) {
       backdrop.classList.add('hidden-modal');
       confirmBtn.removeEventListener('click', onConfirm);
@@ -511,9 +514,13 @@ function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK
       previousFocus?.focus();
       resolve(result);
     }
+    // Resolve the dialog choice as true so the waiting action can continue.
     function onConfirm() { cleanup(true); }
+    // Resolve the dialog choice as false to cancel the waiting action.
     function onCancel() { cleanup(false); }
+    // Cancel the dialog when the user clicks outside its panel.
     function onBackdropClick(e) { if (e.target === backdrop) cleanup(false); }
+    // Handle Escape cancellation and keep keyboard focus inside the dialog.
     function onKeydown(e) {
       if (e.key === 'Escape') { e.preventDefault(); cleanup(false); }
       if (e.key === 'Tab') {
@@ -532,6 +539,7 @@ function showConfirm({ title = 'Are you sure?', message = '', confirmLabel = 'OK
 }
 
 /* --- Toasts: replaces the native browser alert() --- */
+// Display a temporary message in the browser notification area.
 function showToast(message, type = 'error') {
   const stack = document.getElementById('toastStack');
   const el = document.createElement('div');
@@ -555,10 +563,12 @@ function showToast(message, type = 'error') {
 const buildRail = document.getElementById('buildRail');
 const menuToggleBtn = document.getElementById('menuToggleBtn');
 
+// Expand the map editing menu and update its accessibility state.
 function openRail() {
   buildRail.classList.add('open');
   menuToggleBtn.setAttribute('aria-expanded', 'true');
 }
+// Collapse the map editing menu and update its accessibility state.
 function closeRail() {
   buildRail.classList.remove('open');
   menuToggleBtn.setAttribute('aria-expanded', 'false');
@@ -573,11 +583,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRail(
 const cipherLab = document.getElementById('cipherLab');
 const cipherLabToggleBtn = document.getElementById('cipherLabToggleBtn');
 
+// Open the cipher panel and scroll its controls into view.
 function openCipherLab() {
   cipherLab.classList.add('open');
   cipherLabToggleBtn.setAttribute('aria-expanded', 'true');
   setTimeout(() => cipherLab.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 120);
 }
+// Collapse the cipher panel and update its toggle state.
 function closeCipherLab() {
   cipherLab.classList.remove('open');
   cipherLabToggleBtn.setAttribute('aria-expanded', 'false');
@@ -589,6 +601,7 @@ cipherLabToggleBtn.addEventListener('click', () => {
 /* --- Caesar cipher, mirroring cipher.py: letters shift mod 26, digits shift mod 10,
    everything else (spaces, punctuation, arrows) passes through untouched. This lets a
    single function encrypt/decrypt any free-text message, not just node ids/weights. --- */
+// Shift one ASCII letter or digit for the browser cipher tools.
 function caesarShiftChar(ch, key) {
   const code = ch.charCodeAt(0);
   if (ch >= 'a' && ch <= 'z') return String.fromCharCode(((code - 97 + key) % 26 + 26) % 26 + 97);
@@ -596,13 +609,16 @@ function caesarShiftChar(ch, key) {
   if (ch >= '0' && ch <= '9') return String.fromCharCode(((code - 48 + key) % 10 + 10) % 10 + 48);
   return ch;
 }
+// Return shifted text locally for the message encryptor.
 function caesarEncryptMessage(text, key) {
   return Array.from(text).map(ch => caesarShiftChar(ch, key)).join('');
 }
+// Reverse the local cipher shift for messages and imported path exports.
 function caesarDecryptMessage(text, key) {
   return caesarEncryptMessage(text, -key);
 }
 
+// Turn browser text into a Blob and save it as the supplied filename.
 function downloadTextFile(filename, contents) {
   const blob = new Blob([contents], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
@@ -620,6 +636,7 @@ document.getElementById('msgCipherKey').addEventListener('input', (e) => {
   document.getElementById('msgKeyLabel').textContent = e.target.value;
 });
 
+// Encrypt editor text in the browser and keep the result for display, copy, and download.
 document.getElementById('msgEncryptBtn').addEventListener('click', () => {
   const text = document.getElementById('msgPlainInput').value;
   if (!text.trim()) { showToast('Write a message first.', 'error'); return; }
@@ -656,6 +673,7 @@ ${payload}
   downloadTextFile('wayglyph_encrypted_message.txt', contents);
 });
 
+// Copy the browser-held encrypted message to the system clipboard.
 document.getElementById('msgCopyBtn').addEventListener('click', async (evt) => {
   const payload = evt.currentTarget.dataset.payload || '';
   if (!payload) return;
@@ -673,6 +691,7 @@ document.getElementById('decryptCipherKey').addEventListener('input', (e) => {
   document.getElementById('decryptKeyLabel').textContent = e.target.value;
 });
 
+// Read a selected text file into the browser decryptor without uploading it.
 document.getElementById('decryptFileInput').addEventListener('change', async (evt) => {
   const file = evt.target.files[0];
   if (!file) return;
@@ -680,6 +699,7 @@ document.getElementById('decryptFileInput').addEventListener('change', async (ev
   showToast(`Loaded ${file.name}`, 'info');
 });
 
+// Restore a message or path export locally and display the decrypted text.
 document.getElementById('decryptBtn').addEventListener('click', () => {
   const raw = document.getElementById('decryptInput').value;
   if (!raw.trim()) { showToast('Paste or load something to decrypt first.', 'error'); return; }
@@ -725,6 +745,7 @@ document.getElementById('decryptBtn').addEventListener('click', () => {
   if (canAnimate) animate(out, { opacity: [0, 1], duration: 300, ease: 'outQuad' });
 });
 
+// Copy the locally restored text to the system clipboard.
 document.getElementById('decryptCopyBtn').addEventListener('click', async (evt) => {
   const payload = evt.currentTarget.dataset.payload || '';
   if (!payload) return;
@@ -737,6 +758,7 @@ document.getElementById('decryptCopyBtn').addEventListener('click', async (evt) 
   } catch (e) { /* clipboard unavailable — silently ignore */ }
 });
 
+// Switch map editing mode, clear the pending connection, and redraw the map.
 function setMode(newMode) {
   mode = newMode;
   connectFirstNode = null;
@@ -760,6 +782,7 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
   });
 });
 
+// GET /api/graph into browser GRAPH state, then refresh the map and node lists.
 async function loadGraph(highlightPath) {
   const revision = ++graphRevision;
   resetSidebar();
@@ -773,11 +796,13 @@ async function loadGraph(highlightPath) {
   drawGraph(highlightPath, true); // true = play the node/edge entrance animation
 }
 
+// Show node and edge counts from browser GRAPH state.
 function updateMapBadge() {
   const badge = document.getElementById('mapBadge');
   badge.innerHTML = `<span class="material-symbols-outlined text-[13px] text-primary">hub</span> ${GRAPH.nodes.length} nodes &middot; ${GRAPH.edges.length} edges`;
 }
 
+// Populate start and goal dropdowns from the loaded graph nodes.
 function refreshNodeSelects() {
   const startSel = document.getElementById('startSelect');
   const goalSel = document.getElementById('goalSelect');
@@ -793,6 +818,7 @@ function refreshNodeSelects() {
   else if (GRAPH.nodes.length) goalSel.value = GRAPH.nodes[GRAPH.nodes.length - 1].id;
 }
 
+// Render browser GRAPH data as SVG nodes, edges, weights, and path highlights.
 function drawGraph(highlightPath, animateEntrance) {
   const svg = document.getElementById('graphSvg');
   svg.innerHTML = '';
@@ -910,6 +936,7 @@ function animatePathReveal(path) {
   });
 }
 
+// Convert a pointer position into map coordinates for the add-node API.
 function svgCoords(evt) {
   const svg = document.getElementById('graphSvg');
   const pt = svg.createSVGPoint();
@@ -919,6 +946,7 @@ function svgCoords(evt) {
   return { x: Math.round(loc.x), y: Math.round(loc.y) };
 }
 
+// POST clicked map coordinates to /api/nodes, which saves them in data/graph.txt.
 document.getElementById('graphSvg').addEventListener('click', async (evt) => {
   if (mode !== 'add') return; // clicks on nodes are handled separately and stop propagation
   const { x, y } = svgCoords(evt);
@@ -932,6 +960,7 @@ document.getElementById('graphSvg').addEventListener('click', async (evt) => {
   await loadGraph();
 });
 
+// Send delete-node or connect-edge requests to Flask, then reload the map.
 async function handleNodeClick(nodeId) {
   if (mode === 'delete') {
     const ok = await showConfirm({
@@ -972,6 +1001,7 @@ async function handleNodeClick(nodeId) {
   }
 }
 
+// Confirm clearing, then POST an empty graph reset and refresh the map.
 document.getElementById('resetEmptyBtn').addEventListener('click', async () => {
   const ok = await showConfirm({
     title: 'Clear the entire map?',
@@ -988,6 +1018,7 @@ document.getElementById('resetEmptyBtn').addEventListener('click', async () => {
   resetSidebar();
 });
 
+// POST a sample graph reset; Flask saves the replacement in data/graph.txt.
 document.getElementById('resetSampleBtn').addEventListener('click', async () => {
   await graphRequest('/api/graph/reset', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -997,10 +1028,12 @@ document.getElementById('resetSampleBtn').addEventListener('click', async () => 
   resetSidebar();
 });
 
+// Download the server graph through /api/graph/save.
 document.getElementById('saveGraphBtn').addEventListener('click', () => {
   window.location.href = '/api/graph/save';
 });
 
+// Upload graph text to /api/graph/load to replace and save the server graph.
 document.getElementById('loadGraphInput').addEventListener('change', async (evt) => {
   const file = evt.target.files[0];
   if (!file) return;
@@ -1016,6 +1049,7 @@ document.getElementById('loadGraphInput').addEventListener('change', async (evt)
   evt.target.value = ''; // allow re-uploading the same filename later
 });
 
+// Clear displayed path results and disable their export and copy controls.
 function resetSidebar() {
   document.getElementById('logPanel').innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-on-surface-variant opacity-50 text-center font-sans">Pick a Start/Goal node and click Find Path...</td></tr>';
   document.getElementById('logCount').textContent = '';
@@ -1043,10 +1077,12 @@ function statusMeta(status) {
   return { icon: 'chevron_right', color: 'text-on-surface-variant' };
 }
 
+// Escape text before inserting server values or messages into HTML.
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// POST start, goal, and key to /api/pathfind; show its JSON path, trace, and cipher results.
 document.getElementById('executeBtn').addEventListener('click', async () => {
   const revision = graphRevision;
   const sequence = ++pathRequest;
@@ -1172,11 +1208,13 @@ ${edgeExportLines}`;
   }
 });
 
+// Save the currently displayed browser path result as encrypted_path.txt.
 document.getElementById('exportBtn').addEventListener('click', () => {
   const payload = document.getElementById('exportBtn').dataset.payload;
   if (payload) downloadTextFile('encrypted_path.txt', payload);
 });
 
+// Copy the displayed path export from browser state to the system clipboard.
 document.getElementById('copyBtn').addEventListener('click', async (evt) => {
   const payload = evt.currentTarget.dataset.payload || '';
   if (!payload) return;
