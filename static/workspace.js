@@ -5,7 +5,7 @@
   const $ = id => document.getElementById(id);
   const studio = $('textLab');
   const workerURL = new URL('search-worker.js', document.currentScript.src);
-  const state = {documents: [], busy: false, tab: 'input', search: {}, compression: {}, parallel: null, optimization: null, timings: {}, urls: new Map()};
+  const state = {documents: [], editorIndex: null, busy: false, tab: 'search', search: {}, compression: {}, parallel: null, optimization: null, timings: {}, urls: new Map()};
   const algorithmInfo = {
     kmp: ['KMP', 'O(n + m)', 'O(m + z)', 'Server · compute'],
     brute: ['Brute Force', 'O(n × m)', 'O(n + m + z)', 'Browser worker · compute'],
@@ -28,7 +28,10 @@
   // Build a button and connect clicks to its supplied action.
   function button(text, message, action, className = 'studio-button secondary') { const node = help(el('button', text, className), message); node.type = 'button'; node.addEventListener('click', action); return node; }
   // Show progress or errors in the workspace status bar.
-  function setStatus(message, type = '') { $('statusText').textContent = message; $('status').className = `studio-status ${type}`; }
+  function setStatus(message, type = '') {
+    $('statusText').textContent = message; $('status').className = `studio-status ${type}`;
+    $('analysisState').textContent = type === 'busy' ? 'Running' : type === 'error' ? 'Check input' : Object.keys(state.timings).length ? 'Completed' : 'Ready';
+  }
   // Return a labeled value card for result summaries.
   function metric(label, value, message, note = '', style = '') {
     const node = el('dl', undefined, `metric ${style}`);
@@ -37,7 +40,7 @@
   // Return a placeholder card, optionally linking back to text input.
   function empty(title, detail, goToInput = false) {
     const node = el('div', undefined, 'empty-state'); node.append(el('b', title), el('span', detail));
-    if (goToInput) node.append(button('Load text first', 'Go to Text Input to add files or load a sample.', () => selectTab('input', true)));
+    if (goToInput) node.append(button('Add text', 'Use the dataset editor on the left.', () => selectTab('input', true)));
     return node;
   }
   // Return a titled result container with help text.
@@ -78,25 +81,48 @@
   }
   // Switch the active Text Lab panel and update keyboard focus if requested.
   function selectTab(name, focus = false) {
+    if (name === 'input') { hideTooltip(); $('text').focus(); return; }
     if (!$(`panel-${name}`)) return;
     state.tab = name;
     for (const tab of document.querySelectorAll('[data-tab]')) { const active = tab.dataset.tab === name; tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; $(`panel-${tab.dataset.tab}`).hidden = !active; }
-    hideTooltip(); updateFlow(); if (focus) $(`panel-${name}`).focus({preventScroll: false});
+    hideTooltip(); if (focus) $(`panel-${name}`).focus({preventScroll: false});
   }
-  // Update the load, run, and compare steps from the current browser state.
-  function updateFlow() {
-    const loaded = state.documents.length > 0, measured = Object.keys(state.timings).length > 0;
-    const step = !loaded ? 0 : state.tab === 'performance' && measured ? 2 : 1;
-    ['flowLoad', 'flowRun', 'flowCompare'].forEach((id, i) => { $(id).className = i < step ? 'done' : i === step ? 'current' : ''; if (i === step) $(id).setAttribute('aria-current', 'step'); else $(id).removeAttribute('aria-current'); });
+  // Keep the visible editor attached to a loaded document without clearing its text.
+  function editorDirty() {
+    const doc = state.documents[state.editorIndex];
+    return doc ? doc.name !== $('name').value.trim() || doc.text !== $('text').value : $('text').value.length > 0;
+  }
+  function loadEditor(index) {
+    state.editorIndex = index;
+    const doc = state.documents[index];
+    $('name').value = doc ? doc.name : 'My document.txt'; $('text').value = doc ? doc.text : '';
+    updateControls();
+  }
+  function saveEditor() {
+    if (!editorDirty()) return;
+    const index = state.editorIndex, doc = state.documents[index];
+    const incoming = {name: $('name').value.trim(), text: $('text').value, priority: doc ? doc.priority : 1};
+    if (!incoming.name) throw new Error('Enter a dataset name.');
+    if (!doc && !incoming.text.length) throw new Error('Enter some text first.');
+    const combined = doc ? state.documents.map((item, i) => i === index ? incoming : item) : [...state.documents, incoming];
+    validateDocuments(combined);
+    state.documents = combined; state.editorIndex = doc ? index : combined.length - 1;
+    datasetChanged();
   }
   // Enable or disable inputs and actions using dataset validity and busy state.
   function updateControls() {
+    const dirty = editorDirty();
+    const characters = Array.from($('text').value).length;
+    $('editorMeta').textContent = `${fmt(characters)} character${characters === 1 ? '' : 's'} · ${bytes(new TextEncoder().encode($('text').value).length)}`;
+    $('editorState').hidden = !dirty;
+    $('add').textContent = state.editorIndex === null ? 'Add dataset' : 'Save changes';
+    $('inputHint').textContent = dirty ? 'Save your text to use it in analysis.' : state.documents.length ? 'Analysis uses all loaded datasets.' : 'Add text or load a sample.';
     const docs = state.documents.length > 0, pattern = $('pattern').value.length > 0;
     const priorityValid = state.documents.every(doc => Number.isInteger(doc.priority) && doc.priority >= 1 && doc.priority <= 1000);
     const budget = Number($('capacity').value), budgetValid = $('capacity').value !== '' && Number.isInteger(budget) && budget >= 0 && budget <= 100000;
     const disabled = {
-      add: !$('text').value.length || !$('name').value.trim().length,
-      sample: state.documents.length > 27, clear: !docs, clearDraft: !$('text').value.length,
+      add: !dirty || !$('name').value.trim().length || (state.editorIndex === null && !$('text').value.length),
+      sample: state.documents.length > 27, clear: !docs, clearDraft: state.editorIndex === null && !$('text').value.length,
       search: !docs || !pattern, brute: !docs || !pattern, compareSearch: !docs || !pattern,
       huffman: !docs, rle: !docs, compareCompression: !docs,
       optimize: !docs || !budgetValid || !priorityValid,
@@ -105,11 +131,10 @@
       clearOptimization: !state.optimization, clearParallel: !state.parallel,
       clearTimings: !Object.keys(state.timings).length
     };
-    for (const [id, invalid] of Object.entries(disabled)) $(id).setAttribute('aria-disabled', String(state.busy || invalid));
+    for (const [id, invalid] of Object.entries(disabled)) $(id).setAttribute('aria-disabled', String(state.busy || invalid || (dirty && $(id).hasAttribute('data-analysis-action'))));
     document.querySelectorAll('[data-needs-documents]').forEach(node => node.setAttribute('aria-disabled', String(state.busy || !docs)));
     studio.querySelectorAll('input,textarea,select').forEach(node => { node.disabled = state.busy; });
     studio.querySelectorAll('[data-mutates-dataset]').forEach(node => node.setAttribute('aria-disabled', String(state.busy)));
-    updateFlow();
   }
   // Clear cached search results, timings, and displayed matches.
   function clearSearch() { state.search = {}; delete state.timings.kmp; delete state.timings.brute; clearContainer('searchResults'); clearContainer('searchComparison'); }
@@ -134,26 +159,45 @@
   }
   // Show browser-held document names, sizes, priorities, and removal controls.
   function renderDataset() {
-    const count = state.documents.length; $('docCount').textContent = count; $('datasetBadge').firstChild.textContent = count ? `${count} document${count === 1 ? '' : 's'} · ${bytes(totalBytes())}` : 'No documents loaded';
-    $('inputHint').textContent = count ? 'Your dataset is ready. Pick an algorithm to continue.' : 'Add a document to unlock the algorithms.';
+    const count = state.documents.length; $('docCount').textContent = `${count} file${count === 1 ? '' : 's'}`;
+    $('datasetBadge').textContent = count ? `${count} dataset${count === 1 ? '' : 's'} · ${bytes(totalBytes())}` : 'No datasets loaded';
     $('dataset').replaceChildren(); $('priorities').replaceChildren();
-    if (!count) { $('dataset').append(empty('A fresh page, ready for your words.', 'Type a document, upload a file, or try the sample dataset.')); $('priorities').append(el('p', 'Add documents in Text Input to assign their priorities.')); }
+    if (!count) { $('dataset').append(el('p', 'No datasets loaded.', 'dataset-empty')); $('priorities').append(el('p', 'Load datasets to set priorities.')); }
     else {
-      table($('dataset'), [['Document', 'The name you assigned or uploaded.'], ['Original size', 'UTF-8 byte size before compression.'], ['Priority', 'Importance for optimization: higher numbers contribute more value.'], ['Manage', 'Remove individual documents from the dataset.']], state.documents.map((doc, i) => {
-        const remove = button('Remove', `Removes ${doc.name} and clears results for this dataset.`, () => { if (state.busy) return; state.documents.splice(i, 1); datasetChanged(); setStatus('Document removed.'); }, 'studio-button ghost'); remove.dataset.mutatesDataset = 'true';
+      state.documents.forEach((doc, i) => {
+        const item = el('div', undefined, 'dataset-item');
+        const select = button('', 'View and edit this dataset.', () => {
+          if (state.busy || state.editorIndex === i) return;
+          try { saveEditor(); loadEditor(i); renderDataset(); decorate(); setStatus(`Viewing ${state.documents[i].name}.`); }
+          catch (error) { setStatus(error.message, 'error'); }
+        }, 'dataset-select');
+        select.setAttribute('aria-pressed', String(state.editorIndex === i)); select.dataset.mutatesDataset = 'true';
+        const heading = el('span', undefined, 'dataset-item-heading'); heading.append(el('strong', doc.name), el('span', bytes(new TextEncoder().encode(doc.text).length)));
+        select.append(heading, el('span', doc.text.slice(0, 90) || 'Empty text', 'dataset-snippet'));
+        const remove = button('×', `Remove ${doc.name}.`, () => {
+          if (state.busy) return;
+          state.documents.splice(i, 1);
+          if (state.editorIndex === i) loadEditor(state.documents.length ? Math.min(i, state.documents.length - 1) : null);
+          else if (state.editorIndex !== null && state.editorIndex > i) state.editorIndex--;
+          datasetChanged(); setStatus('Dataset removed.');
+        }, 'dataset-remove');
+        remove.setAttribute('aria-label', `Remove ${doc.name}`); remove.dataset.mutatesDataset = 'true';
+        item.append(select, remove); $('dataset').append(item);
         const row = el('div', undefined, 'priority-row'); row.append(help(el('span', doc.name), 'The document whose importance you are setting.'), priorityInput(doc, i, 'Optimizer')); $('priorities').append(row);
-        return [doc.name, bytes(new TextEncoder().encode(doc.text).length), priorityInput(doc, i, 'Dataset'), remove];
-      }));
+      });
     }
-    studio.querySelectorAll('[data-empty-gate]').forEach(node => { node.replaceChildren(); if (!count) node.append(empty('Your text comes first.', 'Load a sample or add a document to use this tool.', true)); });
+    studio.querySelectorAll('[data-empty-gate]').forEach(node => { node.replaceChildren(); if (!count) node.append(empty('No dataset loaded', 'Add text or files on the left.', true)); });
   }
-  // Validate incoming documents and append them to the in-memory browser dataset.
-  function addDocuments(incoming) {
-    const combined = [...state.documents, ...incoming];
+  // Validate the complete collection before changing browser-held documents.
+  function validateDocuments(combined) {
     if (combined.length > 30) throw new Error('You can load up to 30 documents. Remove one before adding more.');
     if (combined.some(doc => !doc.name.trim() || doc.name.length > 255)) throw new Error('Use document names with 1 to 255 characters.');
     if (combined.reduce((sum, doc) => sum + new TextEncoder().encode(doc.text).length, 0) > 2000000) throw new Error('Your dataset exceeds 2 MB. Try fewer files or shorter text.');
-    state.documents = combined; datasetChanged();
+  }
+  function addDocuments(incoming) {
+    const combined = [...state.documents, ...incoming]; validateDocuments(combined);
+    const first = state.documents.length;
+    state.documents = combined; loadEditor(first); datasetChanged();
   }
   // POST documents or a restore payload to /api/text/<action> and return parsed JSON.
   async function api(action, extra = {}) {
@@ -167,7 +211,7 @@
   async function run(id, message, action) {
     const node = $(id); if (state.busy) return;
     if (node.getAttribute('aria-disabled') === 'true') {
-      setStatus(!state.documents.length ? 'Load a sample or add a document in Text Input first.' : id.includes('arallel') || id === 'parallel' ? 'Parallel search needs at least two files and a search phrase.' : id === 'optimize' ? 'Use a whole-number budget from 0 to 100,000 and priorities from 1 to 1,000.' : 'Fill in the required input before continuing.', 'error'); return;
+      setStatus(editorDirty() ? 'Save your text before running analysis.' : !state.documents.length ? 'Load a dataset on the left.' : id.includes('arallel') || id === 'parallel' ? 'Parallel search needs at least two datasets and a search pattern.' : id === 'optimize' ? 'Use a budget from 0 to 100,000 and priorities from 1 to 1,000.' : 'Fill in the required input.', 'error'); return;
     }
     state.busy = true; studio.setAttribute('aria-busy', 'true'); node.classList.add('is-loading'); updateControls(); setStatus(message, 'busy');
     try { const success = await action(); setStatus(success || 'Done. Your results are ready below.'); }
@@ -223,7 +267,7 @@
   function renderSearch(latest) {
     clearContainer('searchComparison'); clearContainer('searchResults');
     const keys = ['kmp', 'brute'].filter(k => state.search[k]);
-    if (keys.length) chart($('searchComparison'), keys.map(k => [algorithmInfo[k][0], state.search[k].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Search runtime', 'KMP: server compute. Brute Force: browser worker compute. Different environments; these timings do not isolate algorithm speed.');
+    if (keys.length) chart($('searchComparison'), keys.map(k => [algorithmInfo[k][0], state.search[k].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Search runtime', 'KMP: server compute ? Brute Force: browser worker.');
     renderMatches($('searchResults'), state.search[latest], algorithmInfo[latest][0], $('pattern').value); decorate();
   }
   // POST documents to /api/text/compress, cache returned payloads, and show results.
@@ -235,7 +279,7 @@
   function renderCompression() {
     clearContainer('compressionResults'); const out = $('compressionResults');
     const methods = ['huffman', 'rle'].filter(method => state.compression[method]);
-    if (methods.length) chart(out, methods.map(method => [method === 'huffman' ? 'Huffman' : 'RLE', state.compression[method].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Compression runtime', 'Both methods use the same server and dataset. Timings include headers and binary encoding.');
+    if (methods.length) chart(out, methods.map(method => [method === 'huffman' ? 'Huffman' : 'RLE', state.compression[method].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Compression runtime', 'Server compute, including headers and binary encoding.');
     for (let i = 0; i < state.documents.length; i++) {
       const c = card(state.documents[i].name, 'Compression results for this document. Sizes include the decoding header and checksum.');
       const cards = el('div', undefined, 'comparison-grid');
@@ -269,7 +313,7 @@
   function renderParallel(result, sequential) {
     clearContainer('parallelResults'); const out = $('parallelResults');
     const summary = el('div', undefined, 'metrics-grid'); summary.append(metric('Worker processes', String(result.workers), 'Independent Python processes used for this search; at most four.'), metric('Parallel wall time', ms(result.elapsed_ms), 'Includes worker startup, data transfer, and searching.')); out.append(summary);
-    if (sequential) chart(out, [['Sequential KMP', sequential.results.reduce((sum, r) => sum + r.elapsed_ms, 0)], ['Parallel KMP', result.elapsed_ms]], 'Execution comparison', 'Sequential: summed server search compute time. Parallel: total wall time including startup and transfer. These measure different scopes; small datasets often favor sequential execution.');
+    if (sequential) chart(out, [['Sequential KMP', sequential.results.reduce((sum, r) => sum + r.elapsed_ms, 0)], ['Parallel KMP', result.elapsed_ms]], 'Execution comparison', 'Sequential: compute ? Parallel: wall time, including worker startup and transfer.');
     renderMatches(out, result, 'Parallel KMP', $('pattern').value); decorate();
   }
   // Refresh runtime charts and complexity details from cached browser timings.
@@ -277,16 +321,16 @@
     $('performanceSummary').replaceChildren(metric('Documents', String(state.documents.length), 'Number of documents in the current dataset.'), metric('Dataset size', bytes(totalBytes()), 'Combined UTF-8 size of loaded documents.'), metric('Algorithms measured', String(Object.keys(state.timings).length), 'Algorithms with a recorded runtime for this dataset. Each row shows its latest run.'));
     $('runtimeChart').replaceChildren();
     const entries = Object.entries(state.timings);
-    if (!entries.length) $('runtimeChart').append(empty('Your comparisons will appear here.', 'Run an algorithm, then come back to see its time and complexity.'));
+    if (!entries.length) $('runtimeChart').append(empty('No measurements yet', 'Run an analysis to compare its runtime.'));
     else {
       $('runtimeChart').append(el('h3', 'Latest measured runtimes'));
       for (const [keys, title] of [[['kmp', 'brute'], 'Pattern matching'], [['huffman', 'rle'], 'Compression'], [['knapsack'], 'Storage selection'], [['parallel'], 'Parallel execution'], [['restore'], 'Restoration round trip']]) {
-        const present = keys.filter(k => state.timings[k]); if (present.length) chart($('runtimeChart'), present.map(k => [algorithmInfo[k][0], state.timings[k].elapsed]), title, present.includes('brute') ? 'Server KMP and browser Brute Force run in different environments.' : 'Latest run for each algorithm. Lower measured milliseconds means less elapsed time for that run.');
+        const present = keys.filter(k => state.timings[k]); if (present.length) chart($('runtimeChart'), present.map(k => [algorithmInfo[k][0], state.timings[k].elapsed]), title, present.includes('brute') ? 'Server KMP and browser Brute Force run in different environments.' : '');
       }
     }
     $('performanceTable').replaceChildren();
     table($('performanceTable'), [['Algorithm', 'The implemented method used for this operation.'], ['Time · Big-O', 'Shows how time grows as the input gets larger. Constants and actual hardware are not included.'], ['Space · Big-O', 'Shows how memory grows, including output and implementation buffers.'], ['Measured time', 'Latest elapsed time for this dataset. Not run means no measurement is recorded.'], ['Timing scope', 'Where and what the timer measures; compare like-for-like scopes.']], Object.entries(algorithmInfo).map(([key, info]) => [info[0], info[1], info[2], state.timings[key] ? ms(state.timings[key].elapsed) : 'Not run', info[3]]));
-    decorate(); updateFlow();
+    decorate();
   }
 
   // One shared tooltip portal: no clipping inside tables or containers.
@@ -319,6 +363,8 @@
   // Add help indicators to elements that have data-help messages.
   function decorate(root = document) {
     for (const node of root.querySelectorAll('[data-help]')) {
+      // Keep routine studio controls clean; their help remains on hover/focus.
+      if (studio.contains(node) && !node.matches('th,dt,.guide-info')) continue;
       if (node.dataset.guided && (!node.matches('button,a') || node.classList.contains('guide-info') || node.querySelector('.guide-dot'))) continue;
       node.dataset.guided = 'true';
       if (node.matches('button,a') && !node.classList.contains('guide-info')) { const dot = el('span', '?', 'guide-dot'); dot.setAttribute('aria-hidden', 'true'); node.append(dot); }
@@ -360,18 +406,26 @@
     selectTab(tabs[next].dataset.tab); tabs[next].focus();
   });
   studio.querySelectorAll('[data-go]').forEach(node => node.addEventListener('click', () => { if (node.getAttribute('aria-disabled') === 'true') return; selectTab(node.dataset.go, true); }));
-  studio.addEventListener('click', event => { const node = event.target.closest('[aria-disabled="true"]'); if (node) { event.preventDefault(); event.stopImmediatePropagation(); showTooltip(node); } }, true);
+  studio.addEventListener('click', event => {
+    const node = event.target.closest('[aria-disabled="true"]');
+    if (node) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (node.hasAttribute('data-analysis-action') && editorDirty()) setStatus('Save your text before running analysis.', 'error');
+      else showTooltip(node);
+    }
+  }, true);
 
   $('text').addEventListener('input', updateControls); $('name').addEventListener('input', updateControls);
-  $('add').addEventListener('click', () => { if (state.busy) return; try { addDocuments([{name: $('name').value.trim() || 'Untitled.txt', text: $('text').value, priority: 1}]); $('text').value = ''; updateControls(); setStatus('Document added. Next, open Pattern Search or Compression.'); } catch (error) { setStatus(error.message, 'error'); } });
-  $('sample').addEventListener('click', () => { if (state.busy) return; try { addDocuments([{name: 'search-demo.txt', text: 'Intelligent text search finds text patterns. Search text with KMP.\n'.repeat(12), priority: 5}, {name: 'repeated.txt', text: 'A'.repeat(1500) + 'B'.repeat(600) + '\n', priority: 3}, {name: 'notes.txt', text: 'Wayglyph combines pattern matching, compression, and storage optimization. 🌏', priority: 2}]); setStatus('Three sample documents loaded. Next: search for “text” or compare compression.'); } catch (error) { setStatus(error.message, 'error'); } });
-  $('clearDraft').addEventListener('click', () => { if (state.busy) return; $('text').value = ''; updateControls(); setStatus('Editor cleared. Your loaded documents are kept.'); });
-  $('clear').addEventListener('click', () => { if (state.busy) return; state.documents = []; datasetChanged(); setStatus('Dataset cleared. Add text or try a sample to begin again.'); });
+  $('add').addEventListener('click', () => { if (state.busy) return; try { saveEditor(); setStatus('Dataset saved.'); } catch (error) { setStatus(error.message, 'error'); } });
+  $('sample').addEventListener('click', () => { if (state.busy) return; try { saveEditor(); addDocuments([{name: 'search-demo.txt', text: 'Intelligent text search finds text patterns. Search text with KMP.\n'.repeat(12), priority: 5}, {name: 'repeated.txt', text: 'A'.repeat(1500) + 'B'.repeat(600) + '\n', priority: 3}, {name: 'notes.txt', text: 'Wayglyph combines pattern matching, compression, and storage optimization. 🌏', priority: 2}]); setStatus('Three sample datasets loaded.'); } catch (error) { setStatus(error.message, 'error'); } });
+  $('clearDraft').addEventListener('click', () => { if (state.busy) return; try { saveEditor(); loadEditor(null); renderDataset(); decorate(); $('text').focus(); setStatus('Ready for a new dataset.'); } catch (error) { setStatus(error.message, 'error'); } });
+  $('clear').addEventListener('click', () => { if (state.busy) return; state.documents = []; loadEditor(null); datasetChanged(); setStatus('Datasets cleared.'); });
   // Read uploaded UTF-8 files into browser state; API calls send them when an algorithm runs.
   $('files').addEventListener('change', () => run('files', 'Reading your text files…', async () => {
-    try { const files = [...$('files').files]; if (!files.length) return 'No files selected. Your dataset is unchanged.'; if (files.length > 30 || files.reduce((sum, file) => sum + file.size, 0) > 2000000) throw new Error('Choose up to 30 files with 2 MB combined.');
+    try { const files = [...$('files').files]; if (!files.length) return 'No files selected.'; if (files.length > 30 || files.reduce((sum, file) => sum + file.size, 0) > 2000000) throw new Error('Choose up to 30 files with 2 MB combined.');
+      saveEditor();
       const incoming = []; for (const file of files) { let text; try { text = new TextDecoder('utf-8', {fatal: true}).decode(await file.arrayBuffer()); } catch { throw new Error(`${file.name} is not readable UTF-8 text. Save it as UTF-8 and try again.`); } incoming.push({name: file.name, text, priority: 1}); }
-      addDocuments(incoming); return `${incoming.length} file(s) added. Your dataset is ready.`;
+      addDocuments(incoming); return `${incoming.length} dataset(s) loaded.`;
     } finally { $('files').value = ''; }
   }));
   // Sync both pattern inputs and discard search results for the old pattern.
@@ -389,7 +443,7 @@
       const packed = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (let i = 0; i < packed.length; i += 8192) binary += String.fromCharCode(...packed.subarray(i, i + 8192));
       const start = performance.now(), result = await api('decompress', {payload: btoa(binary)}); record('restore', performance.now() - start, 'Full request round trip, not server-only computation');
       clearContainer('restored'); $('restored').append(metric('Restored text', bytes(result.original_bytes), 'The recovered UTF-8 text size.'));
-      const chars = Array.from(result.text); $('restored').append(el('div', chars.slice(0, 2000).join(''), 'text-preview'), el('p', 'Preview shows up to 2,000 characters. The download contains the full restored text.', 'field-hint'), download(`${file.name}.restored.txt`, new Blob([result.text], {type: 'text/plain;charset=utf-8'}))); return 'File restored. Download the complete original text below.';
+      const chars = Array.from(result.text); $('restored').append(el('div', chars.slice(0, 2000).join(''), 'text-preview'), el('p', 'Preview: first 2,000 characters.', 'field-hint'), download(`${file.name}.restored.txt`, new Blob([result.text], {type: 'text/plain;charset=utf-8'}))); return 'File restored. Download the complete original text below.';
     } finally { $('packed').value = ''; }
   }));
   $('optimize').addEventListener('click', () => run('optimize', 'Finding the highest-priority set that fits…', async () => { const result = await api('optimize', {capacity: Number($('capacity').value)}); state.optimization = result; record('knapsack', result.elapsed_ms); renderOptimization(result); return 'Best selection ready. Increase the budget or adjust priorities to explore alternatives.'; }));
@@ -411,7 +465,6 @@
     const forControl = node.getAttribute('for');
     node.dataset.help = mapGuides[node.id] || mapGuides[forControl] || resultGuides[name.toLowerCase()] || (node.matches('label,th') ? `The ${name.toLowerCase()} setting or result for this operation.` : `Use ${name.toLowerCase()} in the map and cipher lab.`);
   }
-  studio.querySelectorAll('.algorithm-pill,.count-pill').forEach(node => { if (!node.dataset.help) node.dataset.help = node.classList.contains('count-pill') ? 'Number of documents currently loaded.' : `This section uses ${node.textContent.toLowerCase()}.`; });
   document.querySelectorAll('button:not([type])').forEach(node => { node.type = 'button'; });
   renderDataset(); renderPerformance(); updateControls(); decorate();
   window.wayglyphWorkspace('map');

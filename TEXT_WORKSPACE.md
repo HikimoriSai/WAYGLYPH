@@ -6,12 +6,15 @@ Use the prepared project environment: run `.\.venv\Scripts\python.exe app.py`
 and open http://127.0.0.1:5000. On a fresh checkout, create an environment with
 `py -m venv .venv` and install dependencies with
 `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` first.
-The original map and cipher interface is the home page. Open **Text Lab** from
+The original map and cipher interface is the home page. Open **Text studio** from
 the header or **Search & Compression** from the Build Menu to reveal the text
-tools inline, styled to match the original interface. Close Text Lab to return
-to the map layout. `/pathfinder` remains an alias for the same integrated page.
+tools inline, styled to match the original interface. The left sidebar holds
+the dataset editor and loaded files; the right side contains the five analysis
+tabs. Select a file to view or edit its text, then choose **Save changes** before
+analysis. Analysis uses all loaded datasets. **Map & cipher** returns to the map.
+`/pathfinder` remains an alias for the same integrated page.
 
-1. Open **Text Lab**, then load the sample dataset, type text and add it, or upload UTF-8 `.txt` files.
+1. Open **Text studio**, then load a sample, choose **Add dataset** after typing text, or upload UTF-8 `.txt` files in the left sidebar. **New dataset** saves the current text and opens an empty editor.
 2. Search for `text` with KMP. Results include overlapping matches, zero-based
    Unicode code-point positions, highlighting, and elapsed time.
 3. Run parallel file search. Up to four worker processes independently search

@@ -19,12 +19,18 @@ class FrontendTests(unittest.TestCase):
                 with self.subTest(file=str(path), script=i):
                     tree = parser.parse(script.encode('utf-8'))
                     self.assertFalse(tree.root_node.has_error, str(tree.root_node))
+        for path in Path('static').glob('*.js'):
+            with self.subTest(file=str(path)):
+                tree = parser.parse(path.read_bytes())
+                self.assertFalse(tree.root_node.has_error, str(tree.root_node))
 
     def test_literal_control_references_exist(self):
         import app
         html = app.app.test_client().get('/').get_data(as_text=True)
         ids = set(re.findall(r'\bid="([^"]+)"', html))
         references = set(re.findall(r"getElementById\(['\"]([^'\"]+)['\"]\)", html))
+        workspace = Path('static/workspace.js').read_text(encoding='utf-8')
+        references.update(re.findall(r"\$\(['\"]([^'\"]+)['\"]\)", workspace))
         self.assertFalse(references - ids, references - ids)
 
 
