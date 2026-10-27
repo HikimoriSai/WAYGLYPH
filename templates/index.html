@@ -820,6 +820,7 @@ function refreshNodeSelects() {
 
 // Render browser GRAPH data as SVG nodes, edges, weights, and path highlights.
 function drawGraph(highlightPath, animateEntrance) {
+  stopRocketFlight();
   const svg = document.getElementById('graphSvg');
   svg.innerHTML = '';
   const pathSet = new Set();
@@ -906,35 +907,128 @@ function drawGraph(highlightPath, animateEntrance) {
   }
 }
 
-// Sends a little pulse traveling node-by-node, edge-by-edge along the found path.
-function animatePathReveal(path) {
-  if (!canAnimate || !path || path.length < 2) return;
-  const svgEl = document.getElementById('graphSvg');
-  const stepDelay = 160;
-  path.forEach((nodeId, i) => {
-    const circle = svgEl.querySelector(`.node-circle[data-id="${nodeId}"]`);
-    if (circle) {
-      animate(circle, {
-        scale: [1, 1.4, 1],
-        duration: 420,
-        delay: i * stepDelay,
-        ease: 'outQuad',
-      });
-    }
-    if (i < path.length - 1) {
-      const a = path[i], b = path[i + 1];
-      const line = svgEl.querySelector(`.edge-line[data-from="${a}"][data-to="${b}"], .edge-line[data-from="${b}"][data-to="${a}"]`);
-      if (line) {
-        animate(line, {
-          'stroke-width': [3, 7, 3],
-          duration: 420,
-          delay: i * stepDelay + stepDelay / 2,
-          ease: 'outQuad',
-        });
-      }
-    }
-  });
+// Cancel flight before redrawing or replacing a route.
+let rocketFlightFrame = null;
+function stopRocketFlight() {
+  if (rocketFlightFrame !== null) cancelAnimationFrame(rocketFlightFrame);
+  rocketFlightFrame = null;
+  document.querySelector('#pathRocket')?.remove();
 }
+
+// Fly a small SVG rocket along the actual route, with twin animated exhausts.
+function animatePathReveal(path) {
+  stopRocketFlight();
+  if (!path || !path.length) return;
+  const svgEl = document.getElementById('graphSvg');
+  const nodeMap = new Map(GRAPH.nodes.map(node => [node.id, node]));
+  const points = path.map(id => nodeMap.get(id));
+  if (points.some(point => !point)) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const segments = points.slice(1).map((to, i) => {
+    const from = points[i];
+    return { from, to, length: Math.hypot(to.x - from.x, to.y - from.y) };
+  }).filter(segment => segment.length > 0);
+  const totalLength = segments.reduce((sum, segment) => sum + segment.length, 0);
+  const rocket = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  rocket.id = 'pathRocket';
+  rocket.setAttribute('pointer-events', 'none');
+  rocket.setAttribute('aria-hidden', 'true');
+  rocket.innerHTML = `
+    <defs>
+      <linearGradient id="rocketHull" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#93b8cc"/>
+      </linearGradient>
+      <linearGradient id="rocketExhaust">
+        <stop stop-color="#f72585" stop-opacity="0"/>
+        <stop offset=".5" stop-color="#ff964d"/>
+        <stop offset="1" stop-color="#fff5b5"/>
+      </linearGradient>
+    </defs>
+    <g class="rocket-thrusters">
+      <g transform="translate(-16 -8)"><g class="rocket-flame">
+        <path d="M 0 -4 Q -15 -7 -34 0 Q -15 7 0 4 Z" fill="url(#rocketExhaust)"/>
+        <path d="M 0 -2 Q -9 -3 -18 0 Q -9 3 0 2 Z" fill="#e3fbff"/>
+      </g></g>
+      <g transform="translate(-16 8)"><g class="rocket-flame">
+        <path d="M 0 -4 Q -15 -7 -34 0 Q -15 7 0 4 Z" fill="url(#rocketExhaust)"/>
+        <path d="M 0 -2 Q -9 -3 -18 0 Q -9 3 0 2 Z" fill="#e3fbff"/>
+      </g></g>
+    </g>
+    <path d="M -10 -6 L -20 -18 L -4 -13 L 6 -5 Z M -10 6 L -20 18 L -4 13 L 6 5 Z"
+      fill="#f72585" stroke="#ff9cc9" stroke-width="1"/>
+    <rect x="-18" y="-12" width="15" height="7" rx="3" fill="#5bd5fc" stroke="#c7f3ff"/>
+    <rect x="-18" y="5" width="15" height="7" rx="3" fill="#5bd5fc" stroke="#c7f3ff"/>
+    <path d="M -14 -7 Q 5 -13 23 0 Q 5 13 -14 7 Z" fill="url(#rocketHull)" stroke="#dff7ff"/>
+    <path d="M 14 -5 Q 20 -3 23 0 Q 20 3 14 5 Z" fill="#f72585"/>
+    <circle cx="3" cy="0" r="4.5" fill="#003543" stroke="#5bd5fc" stroke-width="2"/>
+    <circle cx="4" cy="-1" r="1.5" fill="#dff7ff"/>`;
+  svgEl.appendChild(rocket);
+  const thrusters = rocket.querySelector('.rocket-thrusters');
+  const flames = rocket.querySelectorAll('.rocket-flame');
+  const circles = new Map([...svgEl.querySelectorAll('.node-circle')].map(el => [el.dataset.id, el]));
+  const edges = [...svgEl.querySelectorAll('.edge-line')];
+  function pulseNode(id) {
+    if (!canAnimate || reducedMotion) return;
+    const circle = circles.get(id);
+    if (circle) animate(circle, { scale: [1, 1.4, 1], duration: 420, ease: 'outQuad' });
+  }
+  function place(point, angle) {
+    rocket.setAttribute('transform', `translate(${point.x} ${point.y}) rotate(${angle})`);
+  }
+  function arrive(angle) {
+    place(points[points.length - 1], angle);
+    thrusters.setAttribute('visibility', 'hidden');
+    rocket.dataset.state = 'arrived';
+    rocketFlightFrame = null;
+    pulseNode(path[path.length - 1]);
+  }
+  const angleOf = segment => Math.atan2(segment.to.y - segment.from.y, segment.to.x - segment.from.x) * 180 / Math.PI;
+  if (reducedMotion || !segments.length) {
+    arrive(segments.length ? angleOf(segments[segments.length - 1]) : -90);
+    return;
+  }
+  rocket.dataset.state = 'flying';
+  place(points[0], angleOf(segments[0]));
+  pulseNode(path[0]);
+  // Keep short routes visible and long routes within a comfortable flight time.
+  const duration = Math.min(10000, Math.max(1800, totalLength / 180 * 1000));
+  let started = null;
+  let activeSegment = -1;
+  function fly(now) {
+    if (!rocket.isConnected) { rocketFlightFrame = null; return; }
+    if (started === null) started = now;
+    const progress = Math.min(1, (now - started) / duration);
+    let distance = progress * totalLength;
+    let index = 0;
+    while (index < segments.length - 1 && distance >= segments[index].length) {
+      distance -= segments[index].length;
+      index++;
+    }
+    // Process each crossed node even when a slow frame skips a short edge.
+    while (activeSegment < index) {
+      if (activeSegment >= 0) pulseNode(segments[activeSegment].to.id);
+      activeSegment++;
+      const current = segments[activeSegment];
+      const edge = edges.find(el =>
+        (el.dataset.from === current.from.id && el.dataset.to === current.to.id) ||
+        (el.dataset.from === current.to.id && el.dataset.to === current.from.id));
+      if (edge && canAnimate) animate(edge, { 'stroke-width': [3, 7, 3], duration: 420, ease: 'outQuad' });
+    }
+    const segment = segments[index];
+    const t = Math.min(1, distance / segment.length);
+    const angle = angleOf(segment);
+    place({ x: segment.from.x + (segment.to.x - segment.from.x) * t,
+      y: segment.from.y + (segment.to.y - segment.from.y) * t }, angle);
+    flames.forEach((flame, i) => {
+      const flicker = Math.sin(now / 47 + i * 2);
+      flame.setAttribute('transform', `scale(${1 + flicker * .18} ${1 + flicker * .08})`);
+    });
+    if (progress >= 1) { arrive(angle); return; }
+    rocketFlightFrame = requestAnimationFrame(fly);
+  }
+  rocketFlightFrame = requestAnimationFrame(fly);
+}
+
 
 // Convert a pointer position into map coordinates for the add-node API.
 function svgCoords(evt) {
@@ -1051,6 +1145,7 @@ document.getElementById('loadGraphInput').addEventListener('change', async (evt)
 
 // Clear displayed path results and disable their export and copy controls.
 function resetSidebar() {
+  stopRocketFlight();
   document.getElementById('logPanel').innerHTML = '<tr><td colspan="7" class="px-3 py-4 text-on-surface-variant opacity-50 text-center font-sans">Pick a Start/Goal node and click Find Path...</td></tr>';
   document.getElementById('logCount').textContent = '';
   document.getElementById('pathCipherBody').classList.add('hidden');
