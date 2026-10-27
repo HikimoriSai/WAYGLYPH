@@ -59,6 +59,7 @@
 .analysis-workspace{min-width:0;overflow:hidden;min-height:650px;border:1px solid var(--studio-line);border-radius:14px;background:var(--studio-card)}
 .analysis-heading{padding:20px 20px 12px;align-items:flex-start}
 .analysis-heading>div{min-width:0}
+.batch-controls{padding:0 20px 12px}.batch-controls .studio-actions{margin-top:0}.batch-controls .field-hint{margin-bottom:0}
 .analysis-heading .dataset-badge{padding:5px 0 0;border:0;border-radius:0;font-size:11px;white-space:normal;overflow-wrap:anywhere}
 .analysis-heading .algorithm-pill{padding:4px 9px;font-size:10px}
 .analysis-workspace .studio-tabs{position:static;display:flex;flex-wrap:wrap;gap:2px;margin:0;padding:4px 12px 0;background:transparent}

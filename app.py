@@ -12,8 +12,10 @@ from validation import node_id as validate_node_id, coordinate, cipher_key as va
 from astar import a_star_search
 from cipher import caesar_encrypt_number, caesar_encrypt_message
 from geometry import distance_between_nodes
-from text_algorithms import (compress_text, huffman_decompress, rle_decompress,
-                             parallel_search, optimize_storage, search_document)
+from text_algorithms import (huffman_decompress, rle_decompress,
+                             parallel_search, optimize_storage, search_document,
+                             compression_batch, optimize_documents, quick_sort_documents,
+                             run_algorithms)
 from graph_data import NODES as SAMPLE_NODES, EDGES as SAMPLE_EDGES
 from graph_store import (
     save_graph_to_disk, load_graph_from_disk, serialize_graph, parse_graph, GRAPH_FILE
@@ -186,9 +188,9 @@ def text_action(action):
             if not isinstance(encoded, str):
                 raise ValueError('Provide a base64 payload.')
             packed = base64.b64decode(encoded, validate=True)
-            if packed[:4] in (b'WGH1', b'WGH2'):
+            if packed[:4] in (b'WGH1', b'WGH2', b'WGH3'):
                 unpacked = huffman_decompress(packed)
-            elif packed[:4] in (b'WGR1', b'WGR2'):
+            elif packed[:4] in (b'WGR1', b'WGR2', b'WGR3'):
                 unpacked = rle_decompress(packed)
             else:
                 raise ValueError('Unknown compression format.')
@@ -204,23 +206,16 @@ def text_action(action):
                 return jsonify(parallel_search(docs, pattern))
             return jsonify(results=[search_document((d['name'], d['text'], pattern)) for d in docs])
         if action == 'compress':
-            results = []
-            for doc in docs:
-                packed, stats = compress_text(doc['text'], data.get('method', 'huffman'))
-                results.append(dict(stats, name=doc['name'], payload=base64.b64encode(packed).decode('ascii')))
-            return jsonify(results=results)
-        if action == 'optimize':
+            return jsonify(compression_batch(docs, data.get('method', 'auto')))
+        if action == 'sort':
+            return jsonify(quick_sort_documents(docs))
+        if action in ('optimize', 'run-all'):
             # Reject invalid budgets and priorities before compression work.
             optimize_storage([{'compressed_bytes': 1, 'priority': d.get('priority', 1)} for d in docs], 0)
             optimize_storage([], data.get('capacity'))
-            items = []
-            for doc in docs:
-                choices = [compress_text(doc['text'], method) for method in ('huffman', 'rle')]
-                packed, stats = min(choices, key=lambda choice: len(choice[0]))
-                items.append(dict(stats, name=doc['name'], priority=doc.get('priority', 1),
-                                  payload=base64.b64encode(packed).decode('ascii')))
-            result = optimize_storage(items, data.get('capacity'))
-            return jsonify(dict(result, items=items))
+            if action == 'run-all':
+                return jsonify(run_algorithms(docs, data.get('capacity')))
+            return jsonify(optimize_documents(docs, data.get('capacity')))
         return jsonify(error='Unknown text operation.'), 404
     except (ValueError, TypeError, KeyError, binascii.Error) as error:
         return jsonify(error=str(error)), 400

@@ -1,15 +1,17 @@
 """Text algorithms with portable binary compression formats (including headers)."""
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+import base64
 import heapq
+import random
 import struct
 import time
 import zlib
 
 
-def _seal(data):
+def _seal(data, version=b'2'):
     """Add a version tag and CRC32 checksum to compressed bytes returned for download."""
-    versioned = data[:3] + b'2' + data[4:]
+    versioned = data[:3] + version + data[4:]
     return versioned + struct.pack('>I', zlib.crc32(versioned))
 
 
@@ -20,6 +22,34 @@ def _unseal(data, magic):
             raise ValueError('Compressed file checksum failed. The file is damaged.')
         return magic + data[4:-4]
     return data  # Backward compatibility with original v1 downloads.
+
+
+def _open_v3(data):
+    if len(data) < 8 or zlib.crc32(data[:-4]) != struct.unpack('>I', data[-4:])[0]:
+        raise ValueError('Compressed file checksum failed. The file is damaged.')
+    return data[:-4]
+
+
+def _varint(value):
+    result = bytearray()
+    while value >= 128:
+        result.append((value & 127) | 128)
+        value >>= 7
+    result.append(value)
+    return bytes(result)
+
+
+def _read_varint(data, offset):
+    value = 0
+    for shift in range(0, 21, 7):
+        if offset >= len(data):
+            break
+        byte = data[offset]
+        offset += 1
+        value |= (byte & 127) << shift
+        if byte < 128:
+            return value, offset
+    raise ValueError('Invalid Huffman frequency.')
 
 
 def kmp_search(text, pattern):
@@ -75,7 +105,7 @@ def huffman_compress(data):
 
     visit(root, '')
     header = b'WGH1' + struct.pack('>H', len(frequencies))
-    header += b''.join(struct.pack('>BQ', symbol, count)
+    header += b''.join(bytes([symbol]) + _varint(count)
                        for symbol, count in sorted(frequencies.items()))
     payload = bytearray()
     accumulator = bits = 0
@@ -88,11 +118,26 @@ def huffman_compress(data):
                 accumulator = bits = 0
     if bits:
         payload.append(accumulator << (8 - bits))
-    return _seal(header + payload)
+    return _seal(header + payload, b'3')
 
 
 def huffman_decompress(data):
     """Validate a Huffman file and return its original bytes for the text API."""
+    if data[:4] == b'WGH3':
+        data = _open_v3(data)
+        if len(data) < 6:
+            raise ValueError('Invalid Huffman header.')
+        size = struct.unpack('>H', data[4:6])[0]
+        if size > 256:
+            raise ValueError('Invalid Huffman header.')
+        offset, entries = 6, bytearray()
+        for _ in range(size):
+            if offset >= len(data):
+                raise ValueError('Truncated Huffman header.')
+            symbol = data[offset]
+            count, offset = _read_varint(data, offset + 1)
+            entries.extend(struct.pack('>BQ', symbol, count))
+        data = b'WGH1' + data[4:6] + entries + data[offset:]
     data = _unseal(data, b'WGH1')
     if len(data) < 6 or data[:4] != b'WGH1':
         raise ValueError('Invalid Huffman file.')
@@ -133,20 +178,49 @@ def huffman_decompress(data):
 
 
 def rle_compress(data):
-    """Encode repeated bytes as count-value pairs with a header and checksum."""
+    """Pack repeated runs and literal blocks so ordinary text is not doubled."""
     result = bytearray(b'WGR1')
     i = 0
+    literals = bytearray()
+
+    def flush():
+        if literals:
+            result.append(len(literals) - 1)
+            result.extend(literals)
+            literals.clear()
+
     while i < len(data):
         count = 1
-        while i + count < len(data) and data[i + count] == data[i] and count < 255:
+        while i + count < len(data) and data[i + count] == data[i] and count < 130:
             count += 1
-        result.extend((count, data[i]))
+        if count >= 3:
+            flush()
+            result.extend((128 + count - 3, data[i]))
+        else:
+            for byte in data[i:i + count]:
+                literals.append(byte)
+                if len(literals) == 128:
+                    flush()
         i += count
-    return _seal(bytes(result))
+    flush()
+    return _seal(bytes(result), b'3')
 
 
 def rle_decompress(data):
     """Validate an RLE file and return its original bytes for the text API."""
+    if data[:4] == b'WGR3':
+        data = _open_v3(data)
+        result, offset = bytearray(), 4
+        while offset < len(data):
+            control = data[offset]
+            offset += 1
+            count = control + 1 if control < 128 else control - 128 + 3
+            width = count if control < 128 else 1
+            if offset + width > len(data) or len(result) + count > 2_000_000:
+                raise ValueError('Invalid or oversized RLE data.')
+            result.extend(data[offset:offset + width] if control < 128 else data[offset:offset + 1] * count)
+            offset += width
+        return bytes(result)
     data = _unseal(data, b'WGR1')
     if data[:4] != b'WGR1' or (len(data) - 4) % 2:
         raise ValueError('Invalid RLE file.')
@@ -161,16 +235,70 @@ def rle_decompress(data):
 def compress_text(text, method):
     """Encode UTF-8 text and return compressed bytes plus statistics to the text API."""
     data = text.encode('utf-8')
-    if method not in ('huffman', 'rle'):
-        raise ValueError('Choose huffman or rle.')
+    if method not in ('huffman', 'rle', 'auto'):
+        raise ValueError('Choose auto, huffman or rle.')
     start = time.perf_counter()
-    packed = huffman_compress(data) if method == 'huffman' else rle_compress(data)
+    if method == 'auto':
+        # Raw text wins ties: never enlarge a download just to wrap it in a format.
+        method, packed = min([('original', data), ('huffman', huffman_compress(data)),
+                              ('rle', rle_compress(data))], key=lambda choice: len(choice[1]))
+    else:
+        packed = huffman_compress(data) if method == 'huffman' else rle_compress(data)
     return packed, {
         'method': method, 'original_bytes': len(data), 'compressed_bytes': len(packed),
         'ratio': round(len(packed) / len(data), 4) if data else None,
         'savings_percent': round(100 * (1 - len(packed) / len(data)), 2) if data else None,
         'elapsed_ms': round((time.perf_counter() - start) * 1000, 3),
     }
+
+
+def compression_batch(documents, method):
+    results = []
+    for doc in documents:
+        packed, stats = compress_text(doc['text'], method)
+        results.append(dict(stats, name=doc['name'], payload=base64.b64encode(packed).decode('ascii')))
+    return {'results': results}
+
+
+def optimize_documents(documents, capacity):
+    items = [dict(item, priority=doc.get('priority', 1)) for item, doc in
+             zip(compression_batch(documents, 'auto')['results'], documents)]
+    return dict(optimize_storage(items, capacity), items=items)
+
+
+def quick_sort_documents(documents):
+    """Randomized three-way Quick Sort by UTF-8 size, preserving input order on ties."""
+    start = time.perf_counter()
+    items = [{'name': doc['name'], 'original_bytes': len(doc['text'].encode('utf-8')),
+              'index': i} for i, doc in enumerate(documents)]
+    rng = random.Random()
+
+    def sort(rows):
+        if len(rows) < 2:
+            return rows
+        pivot = rng.choice(rows)['original_bytes']
+        smaller, equal, larger = [], [], []
+        for row in rows:
+            (smaller if row['original_bytes'] < pivot else larger if row['original_bytes'] > pivot else equal).append(row)
+        return sort(smaller) + equal + sort(larger)
+
+    results = sort(items)
+    return {'results': results, 'elapsed_ms': round((time.perf_counter() - start) * 1000, 3)}
+
+
+def run_algorithms(documents, capacity):
+    """Run the four independent analysis jobs in separate Python processes."""
+    start = time.perf_counter()
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        jobs = {
+            'huffman': executor.submit(compression_batch, documents, 'huffman'),
+            'rle': executor.submit(compression_batch, documents, 'rle'),
+            'quicksort': executor.submit(quick_sort_documents, documents),
+            # Knapsack prepares its own best-size candidates, so it can run independently.
+            'optimization': executor.submit(optimize_documents, documents, capacity),
+        }
+        results = {name: job.result() for name, job in jobs.items()}
+    return dict(results, workers=4, elapsed_ms=round((time.perf_counter() - start) * 1000, 3))
 
 
 def search_document(job):

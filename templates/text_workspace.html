@@ -23,6 +23,10 @@
 
     <section class="analysis-workspace" aria-labelledby="analysisTitle">
       <div class="analysis-heading"><div><h2 id="analysisTitle">Analysis tools</h2><div id="datasetBadge" class="dataset-badge">No datasets loaded</div></div><span id="analysisState" class="algorithm-pill">Ready</span></div>
+      <div class="batch-controls"><div class="studio-actions"><button id="runAll" class="studio-button" data-analysis-action data-help="Runs Huffman, RLE, Quick Sort and 0/1 knapsack in four worker processes. Uses the storage budget and priorities in Optimization.">Run all four together</button></div>
+        <p class="field-hint">Huffman · RLE · Quick Sort · 0/1 knapsack. Set the storage budget and priorities in Optimization.</p>
+        <div id="batchSummary" role="status" aria-live="polite"></div>
+      </div>
       <div class="studio-tabs" role="tablist" aria-label="Analysis tools">
         <button id="tab-search" role="tab" aria-selected="true" aria-controls="panel-search" data-tab="search">Pattern Search</button>
         <button id="tab-compression" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-compression" data-tab="compression">Compression</button>
@@ -45,11 +49,13 @@
       <section id="panel-compression" class="studio-panel" role="tabpanel" aria-labelledby="tab-compression" tabindex="0" hidden>
         <div class="panel-title"><h2>Compression</h2><span class="algorithm-pill">Lossless</span></div>
         <div data-empty-gate class="needs-dataset"></div>
+        <div class="studio-card"><h3>Smallest download</h3><p class="field-hint">Chooses Huffman, RLE, or the original text. Keeps the original when neither compressor saves space.</p><button id="auto" class="studio-button" data-analysis-action>Get smallest file</button></div>
         <div class="studio-columns">
           <div class="studio-card"><h3>Huffman coding</h3><button id="huffman" class="studio-button" data-analysis-action data-help="Uses shorter codes for frequent bytes; includes a decoding header and checksum.">Run Huffman</button></div>
-          <div class="studio-card"><h3>Run-Length Encoding</h3><button id="rle" class="studio-button secondary" data-analysis-action data-help="Encodes repeated bytes as count-value pairs. Best for long repeated runs.">Run RLE</button></div>
+          <div class="studio-card"><h3>Run-Length Encoding</h3><button id="rle" class="studio-button secondary" data-analysis-action data-help="Encodes repeated runs and literal blocks. Best for long repeated runs.">Run RLE</button></div>
         </div>
         <div class="studio-actions compression-actions"><button id="compareCompression" class="studio-button" data-analysis-action>Compare Huffman &amp; RLE</button><button id="clearCompression" class="studio-button ghost">Clear results</button></div>
+        <p class="field-hint">Individual algorithms can enlarge small or varied files because their decoding data takes space. Use Get smallest file to avoid a larger download.</p>
         <div id="compressionResults" class="studio-results" aria-live="polite"></div>
         <div class="studio-card restore-card"><h3>Restore a file</h3><label for="packed">Compressed file (.wgc)</label><input id="packed" type="file" accept=".wgc"><div id="restored" aria-live="polite"></div></div>
       </section>
@@ -58,10 +64,12 @@
         <div class="panel-title"><h2>Storage optimization</h2><span class="algorithm-pill">0/1 knapsack</span></div>
         <div data-empty-gate class="needs-dataset"></div>
         <div class="studio-columns">
-          <div class="studio-card"><label for="capacity">Storage budget (bytes)</label><input id="capacity" type="number" min="0" max="100000" step="1" value="1000" data-help="0–100,000 bytes. Each file uses the smaller of Huffman and RLE."><div class="studio-actions"><button id="optimize" class="studio-button" data-analysis-action>Find best selection</button><button id="clearOptimization" class="studio-button ghost">Clear result</button></div></div>
+          <div class="studio-card"><label for="capacity">Storage budget (bytes)</label><input id="capacity" type="number" min="0" max="100000" step="1" value="1000" data-help="0–100,000 bytes. Each file uses the smallest of Huffman, RLE, or original text."><div class="studio-actions"><button id="optimize" class="studio-button" data-analysis-action>Find best selection</button><button id="clearOptimization" class="studio-button ghost">Clear result</button></div></div>
           <div class="studio-card"><h3>File priorities <span class="field-hint">1–1,000</span></h3><div id="priorities" class="priority-list"></div></div>
         </div>
         <div id="optimizationResults" class="studio-results" aria-live="polite"></div>
+        <div class="studio-card"><h3>Quick Sort</h3><p class="field-hint">Randomized Quick Sort orders files by original UTF-8 size, smallest first. Equal sizes keep their input order.</p><button id="quicksort" class="studio-button secondary" data-analysis-action>Run Quick Sort</button></div>
+        <div id="sortResults" class="studio-results" aria-live="polite"></div>
       </section>
 
       <section id="panel-parallel" class="studio-panel" role="tabpanel" aria-labelledby="tab-parallel" tabindex="0" hidden>
@@ -75,7 +83,7 @@
         <div class="panel-title"><h2>Performance analysis</h2><button id="clearTimings" class="studio-button ghost">Reset timings</button></div>
         <div id="performanceSummary" class="metrics-grid"></div><div id="runtimeChart" class="studio-card"></div>
         <div class="studio-card"><h3>Complexity &amp; measured runtime</h3><div id="performanceTable" class="table-scroll"></div></div>
-        <details class="analysis-notes"><summary>Timing &amp; complexity notes</summary><p>KMP and compression: server compute. Brute Force: browser worker. Parallel: wall time including startup. Knapsack: selection only. Compare timings with the same scope.</p><p>n: input length · m: pattern length · z: matches · k: distinct bytes · B: encoded bits · L: longest code · F: files · C: budget · N: combined text · Z: total matches · p: workers · c: compressed bytes.</p></details>
+        <details class="analysis-notes"><summary>Timing &amp; complexity notes</summary><p>KMP and compression: server compute. Brute Force: browser worker. Parallel: wall time including startup. Knapsack: selection only. Quick Sort: byte sizing and sorting. Run all: wall time including process startup and independent knapsack preparation. Compare timings with the same scope.</p><p>n: input length · m: pattern length · z: matches · k: distinct bytes · B: encoded bits · L: longest code · F: files · C: budget · N: combined text · nmax: largest UTF-8 document · Z: total matches · p: workers · c: compressed bytes.</p></details>
       </section>
     </section>
   </div>

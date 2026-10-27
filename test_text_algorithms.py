@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from text_algorithms import (kmp_search, huffman_compress, huffman_decompress,
                              rle_compress, rle_decompress, optimize_storage,
-                             parallel_search)
+                             parallel_search, compress_text, quick_sort_documents)
 
 
 class AlgorithmTests(unittest.TestCase):
@@ -34,6 +34,34 @@ class AlgorithmTests(unittest.TestCase):
                 unpack(b'bad')
         with self.assertRaises(ValueError):
             huffman_decompress(huffman_compress(b'abcd' * 100)[:-1])
+
+    def test_compact_headers_and_rle_literal_blocks(self):
+        text = b'This ordinary text contains distinct letters and spaces. ' * 8
+        self.assertLess(len(huffman_compress(text)), len(text))
+        varied = bytes(range(256)) * 3
+        self.assertLessEqual(len(rle_compress(varied)), len(varied) + 14)
+        for length in [1, 2, 3, 127, 128, 129, 130, 131, 255, 256]:
+            for sample in [b'a' * length, bytes(range(128)) + b'b' * length + bytes(range(128))]:
+                self.assertEqual(rle_decompress(rle_compress(sample)), sample)
+
+    def test_auto_never_enlarges_and_preserves_original_bytes(self):
+        for text in ['', 'a', 'abc', 'A' * 1000, 'Ordinary text with spaces. ' * 30, '🌏 café']:
+            packed, stats = compress_text(text, 'auto')
+            original = text.encode('utf-8')
+            self.assertLessEqual(len(packed), len(original))
+            unpack = {'original': lambda value: value, 'huffman': huffman_decompress, 'rle': rle_decompress}[stats['method']]
+            self.assertEqual(unpack(packed), original)
+            self.assertEqual(stats['compressed_bytes'], len(packed))
+        self.assertEqual(compress_text('abc', 'auto')[1]['method'], 'original')
+
+    def test_quick_sort_matches_size_order_and_keeps_ties(self):
+        rng = random.Random(42)
+        for _ in range(30):
+            docs = [{'name': str(i), 'text': '🌏' * rng.randrange(20)} for i in range(30)]
+            result = quick_sort_documents(docs)
+            self.assertEqual([r['index'] for r in result['results']],
+                             sorted(range(len(docs)), key=lambda i: len(docs[i]['text'].encode('utf-8'))))
+        self.assertEqual(quick_sort_documents([])['results'], [])
 
     def test_knapsack_matches_exhaustive_subsets(self):
         rng = random.Random(7)
@@ -103,6 +131,34 @@ class RouteTests(unittest.TestCase):
                              ('decompress', {'payload': '!'}),
                              ('optimize', {'documents': [{'name': 'x', 'text': 'a', 'priority': -1}], 'capacity': 10})]:
             self.assertEqual(self.client.post('/api/text/' + action, json=body).status_code, 400)
+
+    def test_concurrent_algorithms_downloads_sort_and_knapsack(self):
+        docs = [{'name': 'tiny.txt', 'text': 'abc', 'priority': 10},
+                {'name': 'runs.txt', 'text': 'a' * 1000, 'priority': 3},
+                {'name': 'text.txt', 'text': 'Ordinary text with spaces. ' * 30, 'priority': 2}]
+        response = self.client.post('/api/text/run-all', json={'documents': docs, 'capacity': 3})
+        self.assertEqual(response.status_code, 200, response.json)
+        result = response.json
+        self.assertEqual(result['workers'], 4)
+        self.assertEqual(result['optimization']['selected_indices'], [0])
+        self.assertEqual(result['optimization']['used_bytes'], 3)
+        self.assertEqual(result['optimization']['items'][0]['method'], 'original')
+        self.assertEqual(base64.b64decode(result['optimization']['items'][0]['payload']), b'abc')
+        self.assertEqual([row['index'] for row in result['quicksort']['results']], [0, 2, 1])
+        for method in ['huffman', 'rle']:
+            for doc, item in zip(docs, result[method]['results']):
+                self.assertEqual(len(base64.b64decode(item['payload'])), item['compressed_bytes'])
+                restored = self.client.post('/api/text/decompress', json={'payload': item['payload']})
+                self.assertEqual(restored.json['text'], doc['text'])
+        sorted_response = self.client.post('/api/text/sort', json={'documents': docs})
+        self.assertEqual([row['index'] for row in sorted_response.json['results']], [0, 2, 1])
+        smallest = self.client.post('/api/text/compress', json={'documents': docs})
+        self.assertEqual(smallest.json['results'][0]['method'], 'original')
+        for body in [{'documents': docs, 'capacity': -1}, {'documents': docs, 'capacity': True},
+                     {'documents': [dict(docs[0], priority=-1)], 'capacity': 3}]:
+            with patch('app.run_algorithms') as run_all:
+                self.assertEqual(self.client.post('/api/text/run-all', json=body).status_code, 400)
+                run_all.assert_not_called()
 
 
 if __name__ == '__main__':

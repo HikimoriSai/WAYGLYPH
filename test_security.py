@@ -7,6 +7,7 @@ import random
 import struct
 import tempfile
 import unittest
+import zlib
 from unittest.mock import patch
 
 from astar import a_star_search
@@ -87,6 +88,20 @@ class CompressionSecurityTests(unittest.TestCase):
     def test_legacy_files_still_restore(self):
         self.assertEqual(rle_decompress(b'WGR1\x03a'), b'aaa')
         self.assertEqual(huffman_decompress(b'WGH1\x00\x01' + struct.pack('>BQ', 97, 3) + b'\x00'), b'aaa')
+        for unpack, data in [(rle_decompress, b'WGR2\x03a'),
+                             (huffman_decompress, b'WGH2\x00\x01' + struct.pack('>BQ', 97, 3) + b'\x00')]:
+            self.assertEqual(unpack(data + struct.pack('>I', zlib.crc32(data))), b'aaa')
+
+    def test_v3_malformed_headers_and_blocks_rejected(self):
+        cases = [(huffman_decompress, b'WGH3\x01\x01'),
+                 (huffman_decompress, b'WGH3\x00\x01a\x80\x80\x80\x80'),
+                 (huffman_decompress, b'WGH3\x00\x02a\x01a\x01\x00'),
+                 (rle_decompress, b'WGR3\x05abc'),
+                 (rle_decompress, b'WGR3\x80'),
+                 (rle_decompress, b'WGR3' + b'\xffa' * 15385)]
+        for unpack, data in cases:
+            with self.subTest(data=data[:20]), self.assertRaises(ValueError):
+                unpack(data + struct.pack('>I', zlib.crc32(data)))
 
     def test_decompression_bombs_rejected(self):
         with self.assertRaises(ValueError):
@@ -176,7 +191,7 @@ class ApiSecurityTests(unittest.TestCase):
         with patch.object(self.module.TEXT_SLOTS, 'acquire', return_value=False):
             self.assertEqual(self.client.post('/api/text/search', json={}).status_code, 429)
         docs = [{'name': 'a', 'text': 'abc'}]
-        with patch.object(self.module, 'compress_text') as compress:
+        with patch('text_algorithms.compress_text') as compress:
             response = self.client.post('/api/text/optimize', json={'documents': docs, 'capacity': -1})
             self.assertEqual(response.status_code, 400)
             compress.assert_not_called()

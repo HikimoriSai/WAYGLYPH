@@ -11,6 +11,8 @@
     brute: ['Brute Force', 'O(n × m)', 'O(n + m + z)', 'Browser worker · compute'],
     huffman: ['Huffman compression', 'O(n + k log k + B)', 'O(kL + B)', 'Server · compute'],
     rle: ['RLE compression', 'O(n)', 'O(c)', 'Server · compute'],
+    auto: ['Smallest file', 'O(n + k log k + B)', 'O(n + kL + B)', 'Server · both compressors and selection'],
+    quicksort: ['Quick Sort', 'O(N + F log F) expected; O(N + F²) worst', 'O(nmax + F²) worst case', 'Server · sizing and sorting'],
     knapsack: ['0/1 knapsack', 'O(F × C)', 'O(F × C)', 'Server · selection only'],
     parallel: ['Parallel KMP', 'Ideal O((N + Fm) / p) + overhead', 'O(N + pm + Z) + process overhead', 'Server · wall time'],
     restore: ['Decompression', 'Huffman: O(k log k + B + n); RLE: O(c + n)', 'Huffman: O(k + n); RLE: O(n)', 'Browser · request round trip']
@@ -19,6 +21,8 @@
   const fmt = n => new Intl.NumberFormat(undefined, {maximumFractionDigits: 3}).format(n);
   const bytes = n => `${fmt(n)} B`;
   const ms = n => `${fmt(n)} ms`;
+  const methodName = method => ({huffman: 'Huffman', rle: 'RLE', original: 'Original text', auto: 'Smallest file'})[method];
+  const fileDownload = item => download(item.method === 'original' ? item.name : `${item.name}.${item.method}.wgc`, packedBlob(item.payload));
   // Count UTF-8 bytes in browser documents for size limits and summaries.
   const totalBytes = () => state.documents.reduce((sum, doc) => sum + new TextEncoder().encode(doc.text).length, 0);
   // Build a DOM element for workspace results and controls.
@@ -124,7 +128,8 @@
       add: !dirty || !$('name').value.trim().length || (state.editorIndex === null && !$('text').value.length),
       sample: state.documents.length > 27, clear: !docs, clearDraft: state.editorIndex === null && !$('text').value.length,
       search: !docs || !pattern, brute: !docs || !pattern, compareSearch: !docs || !pattern,
-      huffman: !docs, rle: !docs, compareCompression: !docs,
+      auto: !docs, huffman: !docs, rle: !docs, compareCompression: !docs, quicksort: !docs,
+      runAll: !docs || !budgetValid || !priorityValid,
       optimize: !docs || !budgetValid || !priorityValid,
       parallel: state.documents.length < 2 || !pattern, compareParallel: state.documents.length < 2 || !pattern,
       clearSearch: !Object.keys(state.search).length, clearCompression: !Object.keys(state.compression).length,
@@ -141,11 +146,12 @@
   // Clear cached parallel results, timing, and their display.
   function clearParallel() { state.parallel = null; delete state.timings.parallel; clearContainer('parallelResults'); }
   // Clear cached file selections, knapsack timing, and their display.
-  function clearOptimization() { state.optimization = null; delete state.timings.knapsack; clearContainer('optimizationResults'); }
+  function clearOptimization() { state.optimization = null; delete state.timings.knapsack; clearContainer('optimizationResults'); $('batchSummary').replaceChildren(); }
   // Discard stale results and refresh the UI after browser documents change.
   function datasetChanged() {
     clearSearch(); clearParallel(); clearOptimization(); state.compression = {}; state.timings = {};
     clearContainer('compressionResults'); clearContainer('restored'); renderDataset(); renderPerformance(); updateControls(); decorate();
+    clearContainer('sortResults'); $('batchSummary').replaceChildren();
   }
   // Build a priority input that updates the document and invalidates file selections.
   function priorityInput(doc, index, label) {
@@ -211,7 +217,7 @@
   async function run(id, message, action) {
     const node = $(id); if (state.busy) return;
     if (node.getAttribute('aria-disabled') === 'true') {
-      setStatus(editorDirty() ? 'Save your text before running analysis.' : !state.documents.length ? 'Load a dataset on the left.' : id.includes('arallel') || id === 'parallel' ? 'Parallel search needs at least two datasets and a search pattern.' : id === 'optimize' ? 'Use a budget from 0 to 100,000 and priorities from 1 to 1,000.' : 'Fill in the required input.', 'error'); return;
+      setStatus(editorDirty() ? 'Save your text before running analysis.' : !state.documents.length ? 'Load a dataset on the left.' : id.includes('arallel') || id === 'parallel' ? 'Parallel search needs at least two datasets and a search pattern.' : ['optimize', 'runAll'].includes(id) ? 'Use a budget from 0 to 100,000 and priorities from 1 to 1,000.' : 'Fill in the required input.', 'error'); return;
     }
     state.busy = true; studio.setAttribute('aria-busy', 'true'); node.classList.add('is-loading'); updateControls(); setStatus(message, 'busy');
     try { const success = await action(); setStatus(success || 'Done. Your results are ready below.'); }
@@ -278,19 +284,19 @@
   // Show compression statistics and create downloads from cached API payloads.
   function renderCompression() {
     clearContainer('compressionResults'); const out = $('compressionResults');
-    const methods = ['huffman', 'rle'].filter(method => state.compression[method]);
-    if (methods.length) chart(out, methods.map(method => [method === 'huffman' ? 'Huffman' : 'RLE', state.compression[method].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Compression runtime', 'Server compute, including headers and binary encoding.');
+    const methods = ['auto', 'huffman', 'rle'].filter(method => state.compression[method]);
+    if (methods.length) chart(out, methods.map(method => [methodName(method), state.compression[method].results.reduce((sum, r) => sum + r.elapsed_ms, 0)]), 'Compression runtime', 'Server compute, including headers and binary encoding. Smallest file runs both compressors before choosing.');
     for (let i = 0; i < state.documents.length; i++) {
       const c = card(state.documents[i].name, 'Compression results for this document. Sizes include the decoding header and checksum.');
       const cards = el('div', undefined, 'comparison-grid');
       for (const method of methods) {
-        const r = state.compression[method].results[i], choice = el('div'); choice.append(help(el('h3', method === 'huffman' ? 'Huffman' : 'RLE'), method === 'huffman' ? 'Shorter codes represent more frequent bytes.' : 'Repeated bytes become count-value pairs.'));
+        const r = state.compression[method].results[i], choice = el('div'); choice.append(help(el('h3', method === 'auto' ? `Smallest file · ${methodName(r.method)}` : methodName(method)), method === 'auto' ? 'The smallest of both compressed formats and the original text.' : method === 'huffman' ? 'Shorter codes represent more frequent bytes.' : 'Repeated runs and literal blocks.'));
         const metrics = el('div', undefined, 'metrics-grid'); metrics.append(
           metric('Original size', bytes(r.original_bytes), 'Original UTF-8 text size in bytes.'),
-          metric('Compressed size', bytes(r.compressed_bytes), 'Complete downloadable file size, including header and checksum.'),
+          metric('Download size', bytes(r.compressed_bytes), 'Actual downloadable size. Compressed files include a header and checksum; original text stays unchanged.'),
           metric('Compression ratio', r.ratio === null ? 'N/A' : fmt(r.ratio), 'Compressed size divided by original size. Lower means better compression.', r.ratio === null ? 'Empty text has no ratio.' : ''),
-          metric('Space saved', r.savings_percent === null ? 'N/A' : `${fmt(r.savings_percent)}%`, 'Percent reduction from the original size. A negative value means the compressed file grew.', r.savings_percent < 0 ? 'This file grew.' : '', r.savings_percent > 0 ? 'good' : r.savings_percent < 0 ? 'bad' : '')
-        ); choice.append(metrics, help(el('p', `Server runtime: ${ms(r.elapsed_ms)}`), 'Measured compression computation time for this document.'), download(`${r.name}.${method}.wgc`, packedBlob(r.payload))); cards.append(choice);
+          metric('Space saved', r.savings_percent === null ? 'N/A' : `${fmt(r.savings_percent)}%`, 'Percent reduction from the original size. A negative value means the compressed file grew.', r.method === 'original' ? 'Original kept: compression would not save space.' : r.savings_percent < 0 ? 'Encoding overhead exceeds savings. Try Get smallest file.' : '', r.savings_percent > 0 ? 'good' : r.savings_percent < 0 ? 'bad' : '')
+        ); choice.append(metrics, help(el('p', `Server runtime: ${ms(r.elapsed_ms)}`), 'Measured compression computation time for this document.'), fileDownload(r)); cards.append(choice);
       }
       c.append(cards); out.append(c);
     } decorate();
@@ -300,14 +306,21 @@
     clearContainer('optimizationResults'); const out = $('optimizationResults'), c = card('Your best selection', 'The exact maximum-total-priority subset that fits the specified byte budget.');
     const metrics = el('div', undefined, 'metrics-grid'); metrics.append(
       metric('Selected files', `${result.selected_indices.length} / ${result.items.length}`, 'Number of files chosen from your dataset.'),
-      metric('Space used', bytes(result.used_bytes), 'Sum of compressed sizes of the selected files.', `Budget: ${bytes(result.capacity_bytes)}`),
+      metric('Space used', bytes(result.used_bytes), 'Sum of actual download sizes of the selected files.', `Budget: ${bytes(result.capacity_bytes)}`),
       metric('Total priority', fmt(result.total_priority), 'Sum of priorities for selected files. The optimizer maximizes this value.', '', 'good'),
       metric('Selection time', ms(result.elapsed_ms), 'Knapsack computation time, excluding compression preparation.')
     ); c.append(metrics);
     if (!result.selected_indices.length) c.append(el('p', 'No file fits this budget. Increase the budget or try a smaller document.'));
-    table(c, [['File', 'Your original document name.'], ['Method', 'The smaller of Huffman and RLE for this file.'], ['Size', 'Complete compressed size in bytes.'], ['Priority', 'Value contributed if selected.'], ['Selection', 'Selected files fit together within the budget.'], ['Download', 'Download selected compressed files.']], result.items.map((item, i) => {
-      const selected = result.selected_indices.includes(i); return [item.name, item.method === 'huffman' ? 'Huffman' : 'RLE', bytes(item.compressed_bytes), item.priority, el('span', selected ? '✓ Selected' : 'Excluded', selected ? 'selection-yes' : 'selection-no'), selected ? download(`${item.name}.${item.method}.wgc`, packedBlob(item.payload)) : '—'];
+    table(c, [['File', 'Your original document name.'], ['Method', 'The smallest of Huffman, RLE and original text.'], ['Size', 'Actual download size in bytes.'], ['Priority', 'Value contributed if selected.'], ['Selection', 'Selected files fit together within the budget.'], ['Download', 'Download selected files.']], result.items.map((item, i) => {
+      const selected = result.selected_indices.includes(i); return [item.name, methodName(item.method), bytes(item.compressed_bytes), item.priority, el('span', selected ? '✓ Selected' : 'Excluded', selected ? 'selection-yes' : 'selection-no'), selected ? fileDownload(item) : '—'];
     })); out.append(c); decorate();
+  }
+  function renderSort(result) {
+    clearContainer('sortResults');
+    const c = card('Files by size · Quick Sort', 'Files ordered by original UTF-8 size, smallest first.');
+    c.append(el('p', `Server runtime: ${ms(result.elapsed_ms)}`, 'field-hint'));
+    table(c, [['File', 'Document name.'], ['Original size', 'UTF-8 byte size.']], result.results.map(item => [item.name, bytes(item.original_bytes)]));
+    $('sortResults').append(c); decorate();
   }
   // Show process search results and optional sequential timing comparisons.
   function renderParallel(result, sequential) {
@@ -324,7 +337,7 @@
     if (!entries.length) $('runtimeChart').append(empty('No measurements yet', 'Run an analysis to compare its runtime.'));
     else {
       $('runtimeChart').append(el('h3', 'Latest measured runtimes'));
-      for (const [keys, title] of [[['kmp', 'brute'], 'Pattern matching'], [['huffman', 'rle'], 'Compression'], [['knapsack'], 'Storage selection'], [['parallel'], 'Parallel execution'], [['restore'], 'Restoration round trip']]) {
+      for (const [keys, title] of [[['kmp', 'brute'], 'Pattern matching'], [['auto', 'huffman', 'rle'], 'Compression'], [['knapsack', 'quicksort'], 'Storage selection and sorting'], [['parallel'], 'Parallel execution'], [['restore'], 'Restoration round trip']]) {
         const present = keys.filter(k => state.timings[k]); if (present.length) chart($('runtimeChart'), present.map(k => [algorithmInfo[k][0], state.timings[k].elapsed]), title, present.includes('brute') ? 'Server KMP and browser Brute Force run in different environments.' : '');
       }
     }
@@ -435,8 +448,21 @@
   $('search').addEventListener('click', () => run('search', 'Finding matches with KMP…', async () => `${await searchAlgorithm('kmp')} KMP match(es) found. See positions and highlights below.`));
   $('brute').addEventListener('click', () => run('brute', 'Checking positions in your browser…', async () => `${await searchAlgorithm('brute')} Brute Force match(es) found.`));
   $('compareSearch').addEventListener('click', () => run('compareSearch', 'Comparing KMP and Brute Force…', async () => { await searchAlgorithm('kmp'); await searchAlgorithm('brute'); return 'Both searches finished. Runtime scopes are labeled in the comparison.'; }));
-  for (const method of ['huffman', 'rle']) $(method).addEventListener('click', () => run(method, `Compressing with ${method === 'huffman' ? 'Huffman' : 'RLE'}…`, () => compress(method)));
-  $('compareCompression').addEventListener('click', () => run('compareCompression', 'Comparing both compression methods…', async () => { await compress('huffman'); await compress('rle'); return 'Comparison ready. Look at size, savings, and runtime for each file.'; }));
+  for (const method of ['auto', 'huffman', 'rle']) $(method).addEventListener('click', () => run(method, method === 'auto' ? 'Choosing the smallest download…' : `Compressing with ${methodName(method)}…`, async () => { await compress(method); return method === 'auto' ? 'Smallest downloads ready. Originals are kept whenever compression would not save space.' : 'Encoding complete. Use Get smallest file if the encoded file grew.'; }));
+  $('compareCompression').addEventListener('click', () => run('compareCompression', 'Comparing both compression methods…', async () => { const results = await Promise.allSettled([compress('huffman'), compress('rle')]); const failure = results.find(result => result.status === 'rejected'); if (failure) throw failure.reason; return 'Comparison ready. Look at size, savings, and runtime for each file.'; }));
+  $('quicksort').addEventListener('click', () => run('quicksort', 'Sorting files by size…', async () => { const result = await api('sort'); record('quicksort', result.elapsed_ms); renderSort(result); return 'Quick Sort finished. Files are ordered by original size.'; }));
+  $('runAll').addEventListener('click', () => run('runAll', 'Running Huffman, RLE, Quick Sort and knapsack in four processes…', async () => {
+    $('batchSummary').replaceChildren();
+    const result = await api('run-all', {capacity: Number($('capacity').value)});
+    state.compression = {huffman: result.huffman, rle: result.rle, auto: {results: result.optimization.items}};
+    state.optimization = result.optimization;
+    for (const method of ['huffman', 'rle', 'auto']) record(method, state.compression[method].results.reduce((sum, item) => sum + item.elapsed_ms, 0));
+    record('knapsack', result.optimization.elapsed_ms); record('quicksort', result.quicksort.elapsed_ms);
+    renderCompression(); renderOptimization(result.optimization); renderSort(result.quicksort);
+    $('batchSummary').append(el('p', `Four algorithms completed · ${result.workers} worker processes · ${ms(result.elapsed_ms)} wall time, including process startup. Compression results are in Compression; knapsack and Quick Sort results are in Optimization.`, 'field-hint'));
+    selectTab('compression');
+    return 'All four algorithms finished. Smallest downloads, knapsack selection and sorted files are ready.';
+  }));
   // Send compressed bytes to /api/text/decompress and offer the restored text as a download.
   $('packed').addEventListener('change', () => run('packed', 'Restoring your original text…', async () => {
     try { const file = $('packed').files[0]; if (!file) return; if (file.size > 4000008) throw new Error('This compressed file exceeds the supported size. Choose a smaller Wayglyph file.');
@@ -454,7 +480,7 @@
   }
   $('parallel').addEventListener('click', () => run('parallel', 'Starting worker processes and searching files…', () => parallel(false)));
   $('compareParallel').addEventListener('click', () => run('compareParallel', 'Comparing sequential and parallel execution…', () => parallel(true)));
-  for (const [id, action] of [['clearSearch', clearSearch], ['clearParallel', clearParallel], ['clearOptimization', clearOptimization], ['clearCompression', () => { state.compression = {}; delete state.timings.huffman; delete state.timings.rle; clearContainer('compressionResults'); }], ['clearTimings', () => { state.timings = {}; }]]) $(id).addEventListener('click', () => { if (state.busy) return; action(); renderPerformance(); updateControls(); setStatus('Results cleared. Your documents are kept.'); });
+  for (const [id, action] of [['clearSearch', clearSearch], ['clearParallel', clearParallel], ['clearOptimization', clearOptimization], ['clearCompression', () => { state.compression = {}; delete state.timings.huffman; delete state.timings.rle; delete state.timings.auto; clearContainer('compressionResults'); }], ['clearTimings', () => { state.timings = {}; }]]) $(id).addEventListener('click', () => { if (state.busy) return; action(); renderPerformance(); updateControls(); setStatus('Results cleared. Your documents are kept.'); });
 
   // Context guides for the retained map and cipher controls.
   const mapGuides = {startSelect: 'Choose where the shortest-path search begins.', goalSelect: 'Choose the destination for the shortest-path search.', cipherKey: 'Shift letters and digits by this key. Use the same key to decrypt.', executeBtn: 'Finds a shortest path with A* and demonstrates Caesar encryption.', resetEmptyBtn: 'Clears all map nodes and edges after confirmation.', resetSampleBtn: 'Replaces the current map with the built-in sample graph.', saveGraphBtn: 'Downloads your current graph as a text file.', loadGraphInput: 'Loads a saved graph text file and replaces the current map.', msgPlainInput: 'Enter a message for the educational Caesar cipher.', msgCipherKey: 'Choose the shift for message encryption. Use this same key to decrypt.', decryptCipherKey: 'Use the original encryption key to restore the message.', msgEncryptBtn: 'Shifts ASCII letters and digits using your selected key.', decryptBtn: 'Reverses Caesar shifts to recover the original message or path.', msgDownloadBtn: 'Downloads this encrypted message with its cipher key.', msgCopyBtn: 'Copies the encrypted message to the clipboard.', decryptCopyBtn: 'Copies the restored text to your clipboard.', copyBtn: 'Copies the displayed path export, including key and plaintext.', menuToggleBtn: 'Shows or hides the map editing controls.', closeRailBtn: 'Closes the map editing menu.', cipherLabToggleBtn: 'Shows or hides the path cipher, message encryptor, and decryptor.', decryptInput: 'Paste an encrypted message or a Wayglyph path export.', decryptFileInput: 'Load an exported text file for decryption.', exportBtn: 'Downloads the path result currently displayed in this browser tab.', modalCancelBtn: 'Cancels this action and keeps the current map.', modalConfirmBtn: 'Applies the action described in this confirmation dialog.'};

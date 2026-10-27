@@ -21,12 +21,25 @@ analysis. Analysis uses all loaded datasets. **Map & cipher** returns to the map
    the documents; results retain input order. Worker startup is included in wall time.
 4. Compare Huffman and RLE compression. Download binary `.wgc` files and restore
    them using the restore file input. New downloads include a CRC32 checksum to
-   detect accidental corruption; original v1 downloads remain readable.
+   detect accidental corruption; original v1 and v2 downloads remain readable.
    Original bytes, compressed bytes, ratio,
    savings, and compression time are shown. Header bytes count toward file size.
-5. Set priorities and a storage budget. Exact 0/1 knapsack chooses a subset with
-   maximum total priority. Each file uses the smaller of Huffman and RLE; the
-   selected files can be downloaded. A file may grow under both methods.
+5. Choose **Get smallest file** to compare Huffman, RLE, and the original text.
+   If neither algorithm reduces the size, download the original text instead.
+   This option never enlarges a download. Individual algorithm results still
+   show their actual size, including any growth.
+6. Set priorities and a storage budget. Exact 0/1 knapsack chooses a subset with
+   maximum total priority. Each file uses the smallest of Huffman, RLE, and
+   original text; selected files can be downloaded in their chosen format.
+7. In Optimization, **Run Quick Sort** orders files by original UTF-8 byte size,
+   smallest first, keeping input order for ties. It uses randomized pivots and
+   three-way partitioning; it does not change document contents or dataset order.
+8. **Run all four together** submits Huffman, RLE, Quick Sort, and knapsack to
+   four independent Python worker processes before waiting for results. Knapsack
+   prepares its own smallest-size candidates so its job can run independently.
+   Compression contains the encoding results and smallest downloads;
+   Optimization contains knapsack and sorted files. Wall time includes startup,
+   transfer, and shutdown; running small inputs concurrently may be slower.
 
 Dataset state lives in the browser's memory and resets on reload. Downloads
 preserve compressed files. Limits: 30 files, 2 MB combined UTF-8 text,
@@ -41,6 +54,8 @@ The UI limits previews and displayed positions; matching still processes all tex
 | Pattern matching | Explicit KMP prefix table and search implementation |
 | Compression | Huffman coding and byte-oriented RLE, with decompression and metrics |
 | Optimization | Exact dynamic-programming 0/1 storage knapsack |
+| Sorting | Randomized three-way Quick Sort by original UTF-8 file size |
+| Concurrent analysis | Four process jobs for Huffman, RLE, Quick Sort, and knapsack |
 | Parallel / randomized | ProcessPoolExecutor runs KMP across separate worker processes |
 | Performance analysis | Complexity table in UI and below, measured computation times |
 
@@ -59,14 +74,19 @@ N combined text characters, Z combined matches, and p worker processes.
 | RLE compression | O(n) | O(c) |
 | RLE decompression | O(c + n) | O(n) |
 | Knapsack selection | O(F C) | O(F C) |
+| Quick Sort including byte sizing | Expected O(N + F log F); worst O(N + F²) | O(nmax + F²) worst case, including temporary UTF-8 sizing |
 | Parallel KMP | Ideal balanced compute O((N + Fm)/p), plus startup and transfer | O(N + pm + Z), plus process overhead |
+
+Here nmax is the largest document's UTF-8 size.
 
 KMP preprocesses the pattern once per document, then never moves its text cursor
 backward. Huffman counts bytes, builds a frequency heap/tree, and packs codes
 into bits. Its binary header stores frequencies so decoding rebuilds the tree;
-tiny or diverse files can grow due to that header. RLE writes one count byte and
-one value byte per run, splitting runs longer than 255. It benefits repeated bytes
-and may nearly double non-repeating data. Ratio is compressed/original size;
+tiny or diverse files can grow due to that header. New v3 Huffman headers use
+variable-length frequencies instead of eight-byte counts. RLE v3 writes literal
+blocks of up to 128 bytes and repeated runs of 3–130 bytes, avoiding the old
+count/value format's doubling of ordinary text. Both formats retain CRC32.
+Neither lossless algorithm can shrink every possible input. Ratio is download/original size;
 savings is 100 × (1 − ratio). Empty input has no defined ratio.
 
 Knapsack uses a descending capacity loop to prevent selecting the same file

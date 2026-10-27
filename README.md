@@ -2,7 +2,10 @@
 
 The original map and cipher UI remains the default page. Its **Text Lab** button
 opens integrated KMP text search, Huffman and RLE compression, parallel file
-search, and exact 0/1 knapsack storage optimization in the existing design.
+search, randomized Quick Sort, and exact 0/1 knapsack storage optimization in
+the existing design. **Get smallest file** keeps the original whenever compression
+would enlarge it. **Run all four together** runs Huffman, RLE, Quick Sort, and
+knapsack in four worker processes.
 See [TEXT_WORKSPACE.md](TEXT_WORKSPACE.md) for setup, a demonstration guide,
 requirement mapping, complexity analysis, and verification instructions.
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the validation findings, fixes,
